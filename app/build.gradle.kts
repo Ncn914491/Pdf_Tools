@@ -37,7 +37,7 @@ android {
             if (keystorePropertiesFile.exists()) {
                 val properties = Properties()
                 properties.load(FileInputStream(keystorePropertiesFile))
-                storeFile = file(properties["storeFile"] as String)
+                storeFile = rootProject.file(properties["storeFile"] as String)
                 storePassword = properties["storePassword"] as String
                 keyAlias = properties["keyAlias"] as String
                 keyPassword = properties["keyPassword"] as String
@@ -124,8 +124,8 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // PDF Tools - Will be added after basic build works
-    // implementation("com.github.barteksc:android-pdf-viewer:2.8.2")
+    // PDF Tools - PdfBox-Android for PDF manipulation
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

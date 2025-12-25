@@ -1,0 +1,545 @@
+package com.yourname.pdftoolkit.ui.screens
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.yourname.pdftoolkit.data.FileManager
+import com.yourname.pdftoolkit.data.PdfFileInfo
+import com.yourname.pdftoolkit.domain.operations.PdfRotator
+import com.yourname.pdftoolkit.domain.operations.PdfSplitter
+import com.yourname.pdftoolkit.domain.operations.RotationAngle
+import com.yourname.pdftoolkit.ui.components.*
+import kotlinx.coroutines.launch
+
+/**
+ * Screen for rotating PDF pages.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RotateScreen(
+    onNavigateBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pdfRotator = remember { PdfRotator() }
+    val pdfSplitter = remember { PdfSplitter() }
+    
+    // State
+    var selectedFile by remember { mutableStateOf<PdfFileInfo?>(null) }
+    var pageCount by remember { mutableStateOf(0) }
+    var rotationAngle by remember { mutableStateOf(RotationAngle.ROTATE_90) }
+    var rotateAllPages by remember { mutableStateOf(true) }
+    var selectedPages by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var isProcessing by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+    var showResult by remember { mutableStateOf(false) }
+    var resultSuccess by remember { mutableStateOf(false) }
+    var resultMessage by remember { mutableStateOf("") }
+    
+    // File picker launcher
+    val pickPdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            val fileInfo = FileManager.getFileInfo(context, uri)
+            selectedFile = fileInfo
+            selectedPages = emptySet()
+            
+            scope.launch {
+                pageCount = pdfSplitter.getPageCount(context, uri)
+            }
+        }
+    }
+    
+    // Save file launcher
+    val savePdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        uri?.let { outputUri ->
+            selectedFile?.let { file ->
+                scope.launch {
+                    isProcessing = true
+                    progress = 0f
+                    
+                    val outputStream = context.contentResolver.openOutputStream(outputUri)
+                    if (outputStream != null) {
+                        val result = if (rotateAllPages) {
+                            pdfRotator.rotateAllPages(
+                                context = context,
+                                inputUri = file.uri,
+                                outputStream = outputStream,
+                                angle = rotationAngle,
+                                onProgress = { progress = it }
+                            )
+                        } else {
+                            val rotations = selectedPages.associateWith { rotationAngle }
+                            pdfRotator.rotateSpecificPages(
+                                context = context,
+                                inputUri = file.uri,
+                                outputStream = outputStream,
+                                rotations = rotations,
+                                onProgress = { progress = it }
+                            )
+                        }
+                        
+                        outputStream.close()
+                        
+                        result.fold(
+                            onSuccess = { count ->
+                                resultSuccess = true
+                                resultMessage = "Successfully rotated $count pages by ${rotationAngle.degrees}°"
+                            },
+                            onFailure = { error ->
+                                resultSuccess = false
+                                resultMessage = error.message ?: "Rotation failed"
+                            }
+                        )
+                    } else {
+                        resultSuccess = false
+                        resultMessage = "Cannot create output file"
+                    }
+                    
+                    isProcessing = false
+                    showResult = true
+                }
+            }
+        }
+    }
+    
+    Scaffold(
+        topBar = {
+            ToolTopBar(
+                title = "Rotate Pages",
+                onNavigateBack = onNavigateBack
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // Content area
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (selectedFile == null) {
+                    EmptyState(
+                        icon = Icons.Default.RotateRight,
+                        title = "No PDF Selected",
+                        subtitle = "Select a PDF file to rotate its pages",
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Selected file info
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureAsPdf,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = selectedFile!!.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "$pageCount pages",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                                IconButton(onClick = { 
+                                    selectedFile = null
+                                    selectedPages = emptySet()
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Rotation angle selection
+                        Text(
+                            text = "Rotation Angle",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            RotationAngle.entries.forEach { angle ->
+                                RotationAngleChip(
+                                    angle = angle,
+                                    isSelected = rotationAngle == angle,
+                                    onClick = { rotationAngle = angle },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Rotate mode selection
+                        Text(
+                            text = "Pages to Rotate",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = rotateAllPages,
+                                onClick = { rotateAllPages = true },
+                                label = { Text("All Pages") },
+                                leadingIcon = if (rotateAllPages) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                            
+                            FilterChip(
+                                selected = !rotateAllPages,
+                                onClick = { rotateAllPages = false },
+                                label = { Text("Select Pages") },
+                                leadingIcon = if (!rotateAllPages) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Page selection (if not rotating all)
+                        if (!rotateAllPages) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Select Pages (${selectedPages.size})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                
+                                TextButton(onClick = { selectedPages = emptySet() }) {
+                                    Text("Clear")
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(5),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                itemsIndexed(
+                                    items = (1..pageCount).toList(),
+                                    key = { _, page -> page }
+                                ) { _, pageNum ->
+                                    SmallPageSelector(
+                                        pageNumber = pageNum,
+                                        isSelected = pageNum in selectedPages,
+                                        rotationAngle = if (pageNum in selectedPages) rotationAngle else null,
+                                        onClick = {
+                                            selectedPages = if (pageNum in selectedPages) {
+                                                selectedPages - pageNum
+                                            } else {
+                                                selectedPages + pageNum
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // Preview rotation
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Surface(
+                                            shape = MaterialTheme.shapes.medium,
+                                            color = MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier
+                                                .size(120.dp, 160.dp)
+                                                .rotate(rotationAngle.degrees.toFloat())
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Description,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(48.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        
+                                        Text(
+                                            text = "Rotate ${rotationAngle.degrees}° clockwise",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Progress overlay
+                if (isProcessing) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier.align(Alignment.Center)
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                OperationProgress(
+                                    progress = progress,
+                                    message = "Rotating pages..."
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Bottom action area
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 3.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    if (selectedFile == null) {
+                        ActionButton(
+                            text = "Select PDF",
+                            onClick = {
+                                pickPdfLauncher.launch(arrayOf("application/pdf"))
+                            },
+                            icon = Icons.Default.FolderOpen
+                        )
+                    } else {
+                        val pageText = if (rotateAllPages) "all pages" else "${selectedPages.size} pages"
+                        ActionButton(
+                            text = "Rotate $pageText",
+                            onClick = {
+                                val fileName = FileManager.generateOutputFileName("rotated")
+                                savePdfLauncher.launch(fileName)
+                            },
+                            enabled = rotateAllPages || selectedPages.isNotEmpty(),
+                            isLoading = isProcessing,
+                            icon = Icons.Default.RotateRight
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    // Result dialog
+    if (showResult) {
+        ResultDialog(
+            isSuccess = resultSuccess,
+            title = if (resultSuccess) "Rotation Complete" else "Rotation Failed",
+            message = resultMessage,
+            onDismiss = { showResult = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RotationAngleChip(
+    angle: RotationAngle,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = when (angle) {
+                    RotationAngle.ROTATE_90 -> Icons.Default.RotateRight
+                    RotationAngle.ROTATE_180 -> Icons.Default.Sync
+                    RotationAngle.ROTATE_270 -> Icons.Default.RotateLeft
+                },
+                contentDescription = null,
+                tint = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = "${angle.degrees}°",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SmallPageSelector(
+    pageNumber: Int,
+    isSelected: Boolean,
+    rotationAngle: RotationAngle?,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.aspectRatio(1f),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        )
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (isSelected && rotationAngle != null) {
+                Icon(
+                    imageVector = Icons.Default.RotateRight,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(12.dp)
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            Text(
+                text = pageNumber.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
