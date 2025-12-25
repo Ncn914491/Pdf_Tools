@@ -26,7 +26,6 @@ Since we don't collect personal information, we don't use, share, or store any p
 - All PDF processing occurs offline on your device
 - No data is transmitted to external servers
 - Your documents remain private and secure on your device
-- We recommend using device security features (screen lock, encryption) for additional protection
 
 ## Third-Party Services
 PDF Toolkit does not integrate with any third-party analytics, advertising, or data collection services.
@@ -38,9 +37,7 @@ Our app does not collect personal information from anyone, including children un
 We may update this Privacy Policy from time to time. We will notify users of any changes by posting the new Privacy Policy in the app and updating the "Last updated" date.
 
 ## Contact Us
-If you have any questions about this Privacy Policy, please contact us at:
-- Email: [your-email@example.com]
-- App Store: Leave a review or contact through the store
+If you have any questions about this Privacy Policy, please contact us through the Google Play Store listing.
 
 ## Compliance
 This privacy policy complies with:
@@ -51,4 +48,4 @@ This privacy policy complies with:
 
 ---
 
-**Note**: You need to host this privacy policy on a public website (like GitHub Pages, your website, or a privacy policy generator service) and provide the URL in the Play Store listing.
+&copy; 2025 PDF Toolkit.
