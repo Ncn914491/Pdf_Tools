@@ -5,18 +5,18 @@
 | Property | Value |
 |----------|-------|
 | **Package Name** | `com.yourname.pdftoolkit` |
-| **Version Name** | 1.0.0 |
-| **Version Code** | 1 |
+| **Version Name** | 1.0.1 |
+| **Version Code** | 2 |
 | **Min SDK** | 24 (Android 7.0) |
-| **Target SDK** | 34 (Android 14) |
-| **Compile SDK** | 34 |
+| **Target SDK** | 35 (Android 15) |
+| **Compile SDK** | 35 |
 
 ## Release Artifacts
 
 | File | Size | Location |
 |------|------|----------|
-| **APK** | 7.6 MB | `release-builds/PDFToolkit-v1.0.0-release.apk` |
-| **AAB** | 8.7 MB | `release-builds/PDFToolkit-v1.0.0-release.aab` |
+| **APK** | 7.6 MB | `release-builds/PDFToolkit-v1.0.1-release.apk` |
+| **AAB** | 8.7 MB | `release-builds/PDFToolkit-v1.0.1-release.aab` |
 
 ## Signing Information
 
@@ -33,7 +33,7 @@
 2. Select your app or create a new one
 3. Navigate to **Release > Production** (or Testing track)
 4. Click **Create new release**
-5. Upload `PDFToolkit-v1.0.0-release.aab`
+5. Upload `PDFToolkit-v1.0.1-release.aab`
 
 ### 2. Store Listing Requirements
 - **App Title**: PDF Toolkit
@@ -121,5 +121,5 @@ ProGuard rules for PdfBox-Android are included in `proguard-rules.pro`.
 
 ---
 
-Generated: 2024-12-25
-Version: 1.0.0
+Generated: 2025-12-25
+Version: 1.0.1
