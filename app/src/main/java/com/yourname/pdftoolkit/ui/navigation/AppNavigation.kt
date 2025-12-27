@@ -27,10 +27,8 @@ import com.yourname.pdftoolkit.ui.screens.FlattenScreen
 import com.yourname.pdftoolkit.ui.screens.SignPdfScreen
 import com.yourname.pdftoolkit.ui.screens.FillFormsScreen
 import com.yourname.pdftoolkit.ui.screens.AnnotationScreen
-// Requires CameraX - uncomment dependencies in build.gradle.kts to enable
-// import com.yourname.pdftoolkit.ui.screens.ScanToPdfScreen
-// Requires ML Kit - uncomment dependencies in build.gradle.kts to enable
-// import com.yourname.pdftoolkit.ui.screens.OcrScreen
+import com.yourname.pdftoolkit.ui.screens.ScanToPdfScreen
+import com.yourname.pdftoolkit.ui.screens.OcrScreen
 
 /**
  * Main navigation graph for the PDF Toolkit app.
@@ -175,9 +173,6 @@ fun AppNavigation(
             )
         }
         
-        // Scan to PDF and OCR disabled - require optional dependencies
-        // Uncomment CameraX/ML Kit in build.gradle.kts and these routes to enable
-        /*
         composable(Screen.ScanToPdf.route) {
             ScanToPdfScreen(
                 onNavigateBack = { navController.popBackStack() }
@@ -189,6 +184,5 @@ fun AppNavigation(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
-        */
     }
 }

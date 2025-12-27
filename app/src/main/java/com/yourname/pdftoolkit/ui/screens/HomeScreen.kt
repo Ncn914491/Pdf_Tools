@@ -362,8 +362,18 @@ val pdfFeatures = listOf(
         icon = Icons.Default.TextFields,
         category = ToolCategory.CONVERT
     ),
-    // Note: Scan to PDF and OCR removed - require optional CameraX/ML Kit dependencies
-    // Re-add these features by uncommenting dependencies in build.gradle.kts
+    PdfFeature(
+        title = "Scan to PDF",
+        description = "Scan documents with camera",
+        icon = Icons.Default.CameraAlt,
+        category = ToolCategory.CONVERT
+    ),
+    PdfFeature(
+        title = "OCR",
+        description = "Make scanned PDFs searchable",
+        icon = Icons.Default.DocumentScanner,
+        category = ToolCategory.CONVERT
+    ),
     
     // MARKUP category (Sign, Annotate, Fill Forms)
     PdfFeature(
