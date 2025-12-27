@@ -1,6 +1,7 @@
 package com.yourname.pdftoolkit.ui.screens
 
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -54,6 +55,7 @@ fun PdfToImageScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var savedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -61,6 +63,28 @@ fun PdfToImageScreen(
     ) { uri ->
         uri?.let {
             selectedFile = FileManager.getFileInfo(context, uri)
+        }
+    }
+    
+    // Open gallery to view images
+    fun openGallery() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                type = "image/*"
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback - open file manager
+            try {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "image/*"
+                }
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                // Ignore if cannot open
+            }
         }
     }
     
@@ -72,6 +96,7 @@ fun PdfToImageScreen(
             isProcessing = true
             progress = 0f
             
+            val uriList = mutableListOf<Uri>()
             var savedCount = 0
             
             val result = imageConverter.pdfToImages(
@@ -81,22 +106,33 @@ fun PdfToImageScreen(
                 dpi = dpi.toInt(),
                 pageNumbers = null, // All pages
                 outputCallback = { pageNumber, bitmap ->
-                    // Save each bitmap to gallery
-                    val saved = saveBitmapToGallery(
-                        context = context,
-                        bitmap = bitmap,
-                        fileName = "${file.name.removeSuffix(".pdf")}_page_$pageNumber",
-                        format = imageFormat
-                    )
-                    if (saved) savedCount++
+                    // Clone the bitmap before saving to avoid recycling issues
+                    val bitmapCopy = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false)
+                    try {
+                        // Save each bitmap to gallery
+                        val savedUri = saveBitmapToGallery(
+                            context = context,
+                            bitmap = bitmapCopy,
+                            fileName = "${file.name.removeSuffix(".pdf")}_page_$pageNumber",
+                            format = imageFormat
+                        )
+                        if (savedUri != null) {
+                            uriList.add(savedUri)
+                            savedCount++
+                        }
+                    } finally {
+                        bitmapCopy.recycle()
+                    }
                 },
                 onProgress = { progress = it }
             )
             
+            savedImageUris = uriList
+            
             result.fold(
                 onSuccess = { _ ->
                     resultSuccess = true
-                    resultMessage = "Successfully saved $savedCount images to your gallery"
+                    resultMessage = "Successfully saved $savedCount images to your gallery (Pictures/PDF Toolkit)"
                     selectedFile = null
                 },
                 onFailure = { error ->
@@ -292,7 +328,7 @@ fun PdfToImageScreen(
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
-                                        text = "Images will be saved to your device's gallery (Pictures folder).",
+                                        text = "Images will be saved to your device's gallery (Pictures/PDF Toolkit folder).",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onTertiaryContainer
                                     )
@@ -362,26 +398,62 @@ fun PdfToImageScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with Open Gallery option
     if (showResult) {
-        ResultDialog(
-            isSuccess = resultSuccess,
-            title = if (resultSuccess) "Conversion Complete" else "Conversion Failed",
-            message = resultMessage,
-            onDismiss = { showResult = false }
+        AlertDialog(
+            onDismissRequest = { showResult = false },
+            icon = {
+                Icon(
+                    imageVector = if (resultSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                    contentDescription = null,
+                    tint = if (resultSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(if (resultSuccess) "Conversion Complete" else "Conversion Failed")
+            },
+            text = {
+                Text(resultMessage)
+            },
+            confirmButton = {
+                if (resultSuccess && savedImageUris.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            showResult = false
+                            openGallery()
+                        }
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open Gallery")
+                    }
+                } else {
+                    TextButton(onClick = { showResult = false }) {
+                        Text("OK")
+                    }
+                }
+            },
+            dismissButton = {
+                if (resultSuccess && savedImageUris.isNotEmpty()) {
+                    TextButton(onClick = { showResult = false }) {
+                        Text("Close")
+                    }
+                }
+            }
         )
     }
 }
 
 /**
  * Save bitmap to device gallery using MediaStore.
+ * Returns the URI of saved image or null on failure.
  */
 private suspend fun saveBitmapToGallery(
     context: android.content.Context,
     bitmap: Bitmap,
     fileName: String,
     format: ImageFormat
-): Boolean = withContext(Dispatchers.IO) {
+): Uri? = withContext(Dispatchers.IO) {
     try {
         val mimeType = format.mimeType
         val extension = format.extension
@@ -399,17 +471,18 @@ private suspend fun saveBitmapToGallery(
             val uri = context.contentResolver.insert(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 contentValues
-            ) ?: return@withContext false
+            ) ?: return@withContext null
             
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 bitmap.compress(compressFormat, 95, outputStream)
+                outputStream.flush()
             }
             
             contentValues.clear()
             contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
             context.contentResolver.update(uri, contentValues, null, null)
             
-            true
+            uri
         } else {
             // Legacy storage
             @Suppress("DEPRECATION")
@@ -420,6 +493,7 @@ private suspend fun saveBitmapToGallery(
             val file = File(appDir, "$fileName.$extension")
             FileOutputStream(file).use { outputStream ->
                 bitmap.compress(compressFormat, 95, outputStream)
+                outputStream.flush()
             }
             
             // Notify gallery
@@ -429,10 +503,10 @@ private suspend fun saveBitmapToGallery(
             }
             context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             
-            true
+            Uri.fromFile(file)
         }
     } catch (e: Exception) {
         e.printStackTrace()
-        false
+        null
     }
 }

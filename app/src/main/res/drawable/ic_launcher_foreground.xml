@@ -4,33 +4,56 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    
-    <!-- PDF Document Shape - White background with fold -->
+
+    <!-- Background circle -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M30,24 L66,24 L78,36 L78,84 L30,84 Z"/>
-    
+        android:pathData="M54,24 A30,30 0 1,1 54,84 A30,30 0 1,1 54,24"/>
+
+    <!-- PDF Document shape -->
+    <path
+        android:fillColor="#FAFAFA"
+        android:strokeColor="#1E3A8A"
+        android:strokeWidth="1.5"
+        android:pathData="M38,32 L58,32 L68,42 L68,76 L38,76 Z"/>
+
     <!-- Document fold corner -->
     <path
-        android:fillColor="#E0E0E0"
-        android:pathData="M66,24 L66,36 L78,36 Z"/>
-    
-    <!-- PDF Text -->
+        android:fillColor="#DBEAFE"
+        android:pathData="M58,32 L58,42 L68,42 Z"/>
+
+    <!-- PDF label background -->
     <path
-        android:fillColor="#D32F2F"
-        android:pathData="M38,50 L42,50 Q46,50 46,54 Q46,58 42,58 L40,58 L40,64 L38,64 Z M40,52 L40,56 L42,56 Q44,56 44,54 Q44,52 42,52 Z"/>
-    
+        android:fillColor="#DC2626"
+        android:pathData="M42,54 L64,54 L64,66 L42,66 Z"/>
+
+    <!-- PDF text -->
     <path
-        android:fillColor="#D32F2F"
-        android:pathData="M48,50 L52,50 Q56,50 56,54 L56,60 Q56,64 52,64 L48,64 Z M50,52 L50,62 L52,62 Q54,62 54,60 L54,54 Q54,52 52,52 Z"/>
-    
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,57 L48,57 Q50,57 50,59 Q50,61 48,61 L46.5,61 L46.5,63.5 L45,63.5 Z M46.5,58 L46.5,60 L48,60 Q49,60 49,59 Q49,58 48,58 Z"/>
+
     <path
-        android:fillColor="#D32F2F"
-        android:pathData="M58,50 L66,50 L66,52 L60,52 L60,56 L64,56 L64,58 L60,58 L60,64 L58,64 Z"/>
-    
-    <!-- Bottom accent line -->
+        android:fillColor="#FFFFFF"
+        android:pathData="M51,57 L54,57 Q56,57 56,59 L56,61.5 Q56,63.5 54,63.5 L51,63.5 Z M52.5,58 L52.5,62.5 L54,62.5 Q55,62.5 55,61.5 L55,59 Q55,58 54,58 Z"/>
+
     <path
-        android:fillColor="#D32F2F"
-        android:pathData="M30,70 L78,70 L78,74 L30,74 Z"/>
-    
+        android:fillColor="#FFFFFF"
+        android:pathData="M57,57 L62,57 L62,58 L58.5,58 L58.5,60 L61,60 L61,61 L58.5,61 L58.5,63.5 L57,63.5 Z"/>
+
+    <!-- Tools icon - small gear at bottom right -->
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M62,70 L64,68 L66,70 L64,72 Z M64,69 A1.5,1.5 0 1,0 64,72 A1.5,1.5 0 1,0 64,69"/>
+
+    <!-- Accent lines at top -->
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M42,38 L54,38 L54,40 L42,40 Z"/>
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M42,43 L50,43 L50,45 L42,45 Z"/>
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M42,48 L52,48 L52,50 L42,50 Z"/>
+
 </vector>
