@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourname.pdftoolkit.domain.operations.*
+import com.yourname.pdftoolkit.util.FileOpener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -148,7 +149,8 @@ class SignPdfViewModel : ViewModel() {
             _state.value = _state.value.copy(
                 isProcessing = false,
                 isComplete = result.success,
-                error = result.errorMessage
+                error = result.errorMessage,
+                resultUri = if (result.success) outputUri else null
             )
         }
     }
@@ -174,7 +176,8 @@ data class SignPdfUiState(
     val isProcessing: Boolean = false,
     val progress: Int = 0,
     val isComplete: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val resultUri: Uri? = null
 )
 
 /**
@@ -571,8 +574,18 @@ fun SignPdfScreen(
                         Text(
                             "PDF Signed Successfully!",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
                         )
+                        state.resultUri?.let { uri ->
+                            FilledTonalButton(
+                                onClick = { FileOpener.openPdf(context, uri) }
+                            ) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Open")
+                            }
+                        }
                     }
                 }
             }

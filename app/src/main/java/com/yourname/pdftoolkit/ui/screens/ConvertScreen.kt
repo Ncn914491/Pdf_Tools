@@ -22,7 +22,11 @@ import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.domain.operations.ImageConverter
 import com.yourname.pdftoolkit.domain.operations.PageSize
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Data class for selected image info.
@@ -53,6 +57,8 @@ fun ConvertScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // Image picker launcher
     val pickImagesLauncher = rememberLauncherForActivityResult(
@@ -69,7 +75,7 @@ fun ConvertScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -95,6 +101,7 @@ fun ConvertScreen(
                         result.fold(
                             onSuccess = { count ->
                                 resultSuccess = true
+                                resultUri = outputUri
                                 resultMessage = "Successfully converted $count images to PDF"
                                 selectedImages = emptyList()
                             },
@@ -112,6 +119,57 @@ fun ConvertScreen(
                     showResult = true
                 }
             }
+        }
+    }
+    
+    // Function to convert with default location
+    fun convertWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val fileName = FileManager.generateOutputFileName("images")
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val convertResult = imageConverter.imagesToPdf(
+                            context = context,
+                            imageUris = selectedImages.map { it.uri },
+                            outputStream = outputResult.outputStream,
+                            pageSize = pageSize,
+                            quality = quality.toInt(),
+                            onProgress = { progress = it }
+                        )
+                        
+                        outputResult.outputStream.close()
+                        
+                        convertResult.fold(
+                            onSuccess = { count ->
+                                Triple(true, "Successfully converted $count images to PDF\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Conversion failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Conversion failed", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedImages = emptyList()
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -373,11 +431,23 @@ fun ConvertScreen(
                             icon = Icons.Default.Image
                         )
                     } else {
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         ActionButton(
                             text = "Convert to PDF",
                             onClick = {
-                                val fileName = FileManager.generateOutputFileName("images")
-                                savePdfLauncher.launch(fileName)
+                                if (useCustomLocation) {
+                                    val fileName = FileManager.generateOutputFileName("images")
+                                    savePdfLauncher.launch(fileName)
+                                } else {
+                                    convertWithDefaultLocation()
+                                }
                             },
                             isLoading = isProcessing,
                             icon = Icons.Default.Transform
@@ -388,13 +458,20 @@ fun ConvertScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Conversion Complete" else "Conversion Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

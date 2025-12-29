@@ -1,34 +1,14 @@
 package com.yourname.pdftoolkit.ui.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.yourname.pdftoolkit.ui.screens.HomeScreen
-import com.yourname.pdftoolkit.ui.screens.MergeScreen
-import com.yourname.pdftoolkit.ui.screens.SplitScreen
-import com.yourname.pdftoolkit.ui.screens.CompressScreen
-import com.yourname.pdftoolkit.ui.screens.ConvertScreen
-import com.yourname.pdftoolkit.ui.screens.PdfToImageScreen
-import com.yourname.pdftoolkit.ui.screens.ExtractScreen
-import com.yourname.pdftoolkit.ui.screens.RotateScreen
-import com.yourname.pdftoolkit.ui.screens.SecurityScreen
-import com.yourname.pdftoolkit.ui.screens.MetadataScreen
-import com.yourname.pdftoolkit.ui.screens.PageNumberScreen
-import com.yourname.pdftoolkit.ui.screens.OrganizeScreen
-import com.yourname.pdftoolkit.ui.screens.UnlockScreen
-import com.yourname.pdftoolkit.ui.screens.RepairScreen
-import com.yourname.pdftoolkit.ui.screens.HtmlToPdfScreen
-import com.yourname.pdftoolkit.ui.screens.ExtractTextScreen
-// New Feature Screens
-import com.yourname.pdftoolkit.ui.screens.WatermarkScreen
-import com.yourname.pdftoolkit.ui.screens.FlattenScreen
-import com.yourname.pdftoolkit.ui.screens.SignPdfScreen
-import com.yourname.pdftoolkit.ui.screens.FillFormsScreen
-import com.yourname.pdftoolkit.ui.screens.AnnotationScreen
-import com.yourname.pdftoolkit.ui.screens.ScanToPdfScreen
-import com.yourname.pdftoolkit.ui.screens.OcrScreen
+import androidx.navigation.navArgument
+import com.yourname.pdftoolkit.ui.screens.*
 
 /**
  * Main navigation graph for the PDF Toolkit app.
@@ -37,17 +17,99 @@ import com.yourname.pdftoolkit.ui.screens.OcrScreen
 @Composable
 fun AppNavigation(
     navController: NavHostController,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    startDestination: String = Screen.Home.route,
+    initialPdfUri: Uri? = null,
+    initialPdfName: String? = null,
+    initialDocumentUri: Uri? = null,
+    initialDocumentName: String? = null
 ) {
+    val actualStartDestination = when {
+        initialPdfUri != null -> "pdf_viewer_direct"
+        initialDocumentUri != null -> "document_viewer_direct"
+        else -> startDestination
+    }
+    
     NavHost(
         navController = navController,
-        startDestination = Screen.Home.route,
+        startDestination = actualStartDestination,
         modifier = modifier
     ) {
         composable(Screen.Home.route) {
             HomeScreen(
                 onNavigateToFeature = { screen ->
                     navController.navigate(screen.route)
+                },
+                onNavigateToSettings = {
+                    navController.navigate(Screen.Settings.route)
+                },
+                onOpenPdfViewer = { uri, name ->
+                    val encodedUri = Uri.encode(uri.toString())
+                    val encodedName = Uri.encode(name)
+                    navController.navigate(Screen.PdfViewer.createRoute(encodedUri, encodedName))
+                },
+                onOpenDocumentViewer = { uri, name ->
+                    val encodedUri = Uri.encode(uri.toString())
+                    val encodedName = Uri.encode(name)
+                    navController.navigate(Screen.DocumentViewer.createRoute(encodedUri, encodedName))
+                }
+            )
+        }
+        
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // PDF Viewer with URI parameters
+        composable(
+            route = Screen.PdfViewer.route,
+            arguments = listOf(
+                navArgument("uri") { 
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("name") { 
+                    type = NavType.StringType
+                    defaultValue = "PDF Document"
+                }
+            )
+        ) { backStackEntry ->
+            val uriString = backStackEntry.arguments?.getString("uri") ?: ""
+            val name = backStackEntry.arguments?.getString("name") ?: "PDF Document"
+            val uri = if (uriString.isNotEmpty()) Uri.parse(Uri.decode(uriString)) else null
+            
+            PdfViewerScreen(
+                pdfUri = uri,
+                pdfName = Uri.decode(name),
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToTool = { tool ->
+                    when (tool) {
+                        "compress" -> navController.navigate(Screen.Compress.route)
+                        "watermark" -> navController.navigate(Screen.Watermark.route)
+                        else -> {}
+                    }
+                }
+            )
+        }
+        
+        // Direct PDF viewer for intent handling
+        composable("pdf_viewer_direct") {
+            PdfViewerScreen(
+                pdfUri = initialPdfUri,
+                pdfName = initialPdfName ?: "PDF Document",
+                onNavigateBack = { 
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo("pdf_viewer_direct") { inclusive = true }
+                    }
+                },
+                onNavigateToTool = { tool ->
+                    when (tool) {
+                        "compress" -> navController.navigate(Screen.Compress.route)
+                        "watermark" -> navController.navigate(Screen.Watermark.route)
+                        else -> {}
+                    }
                 }
             )
         }
@@ -182,6 +244,44 @@ fun AppNavigation(
         composable(Screen.Ocr.route) {
             OcrScreen(
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Document Viewer for Office files (DOCX, XLSX, PPTX)
+        composable(
+            route = Screen.DocumentViewer.route,
+            arguments = listOf(
+                navArgument("uri") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("name") {
+                    type = NavType.StringType
+                    defaultValue = "Document"
+                }
+            )
+        ) { backStackEntry ->
+            val uriString = backStackEntry.arguments?.getString("uri") ?: ""
+            val name = backStackEntry.arguments?.getString("name") ?: "Document"
+            val uri = if (uriString.isNotEmpty()) Uri.parse(Uri.decode(uriString)) else null
+            
+            DocumentViewerScreen(
+                documentUri = uri,
+                documentName = Uri.decode(name),
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Direct document viewer for intent handling
+        composable("document_viewer_direct") {
+            DocumentViewerScreen(
+                documentUri = initialDocumentUri,
+                documentName = initialDocumentName ?: "Document",
+                onNavigateBack = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo("document_viewer_direct") { inclusive = true }
+                    }
+                }
             )
         }
     }

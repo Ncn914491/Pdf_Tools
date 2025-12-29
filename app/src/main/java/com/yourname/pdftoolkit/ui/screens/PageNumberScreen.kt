@@ -21,7 +21,11 @@ import com.yourname.pdftoolkit.domain.operations.PageNumberOptions
 import com.yourname.pdftoolkit.domain.operations.PageNumberPosition
 import com.yourname.pdftoolkit.domain.operations.PdfPageNumberer
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for adding page numbers to PDFs.
@@ -46,7 +50,8 @@ fun PageNumberScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
-    var outputUri by remember { mutableStateOf<Uri?>(null) }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -57,12 +62,12 @@ fun PageNumberScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val saveFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
         uri?.let { saveUri ->
-            outputUri = saveUri
+            resultUri = saveUri
             val file = selectedFile ?: return@let
             
             scope.launch {
@@ -104,6 +109,65 @@ fun PageNumberScreen(
                 isProcessing = false
                 showResult = true
             }
+        }
+    }
+    
+    // Function to add page numbers with default location
+    fun addNumbersWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val file = selectedFile!!
+                    val baseName = file.name.removeSuffix(".pdf")
+                    val fileName = "${baseName}_numbered.pdf"
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val options = PageNumberOptions(
+                            position = position,
+                            format = format,
+                            fontSize = fontSize,
+                            startPage = startPage
+                        )
+                        
+                        val pageResult = pageNumberer.addPageNumbers(
+                            context = context,
+                            inputUri = file.uri,
+                            outputStream = outputResult.outputStream,
+                            options = options,
+                            onProgress = { progress = it }
+                        )
+                        
+                        outputResult.outputStream.close()
+                        
+                        pageResult.fold(
+                            onSuccess = { count ->
+                                Triple(true, "Successfully added page numbers to $count pages\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Failed to add page numbers", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Failed to add page numbers", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedFile = null
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -367,11 +431,23 @@ fun PageNumberScreen(
                             icon = Icons.Default.FolderOpen
                         )
                     } else {
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         ActionButton(
                             text = "Add Page Numbers",
                             onClick = {
-                                val baseName = selectedFile!!.name.removeSuffix(".pdf")
-                                saveFileLauncher.launch("${baseName}_numbered.pdf")
+                                if (useCustomLocation) {
+                                    val baseName = selectedFile!!.name.removeSuffix(".pdf")
+                                    saveFileLauncher.launch("${baseName}_numbered.pdf")
+                                } else {
+                                    addNumbersWithDefaultLocation()
+                                }
                             },
                             isLoading = isProcessing,
                             icon = Icons.Default.FormatListNumbered
@@ -382,13 +458,20 @@ fun PageNumberScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Success" else "Error",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

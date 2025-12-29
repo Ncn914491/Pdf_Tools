@@ -1,5 +1,6 @@
 package com.yourname.pdftoolkit.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -23,7 +24,11 @@ import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.PdfSecurityManager
 import com.yourname.pdftoolkit.domain.operations.PdfSecurityOptions
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for adding password protection to PDF.
@@ -51,6 +56,8 @@ fun SecurityScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -61,18 +68,75 @@ fun SecurityScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
         uri?.let { outputUri ->
-            selectedFile?.let { file ->
-                scope.launch {
-                    isProcessing = true
-                    progress = 0f
+            val file = selectedFile ?: return@let
+            scope.launch {
+                isProcessing = true
+                progress = 0f
+                
+                val outputStream = context.contentResolver.openOutputStream(outputUri)
+                if (outputStream != null) {
+                    val options = PdfSecurityOptions(
+                        ownerPassword = ownerPassword,
+                        userPassword = userPassword,
+                        allowPrinting = allowPrinting,
+                        allowCopying = allowCopying,
+                        allowModifying = allowModifying
+                    )
                     
-                    val outputStream = context.contentResolver.openOutputStream(outputUri)
-                    if (outputStream != null) {
+                    val result = securityManager.encryptPdf(
+                        context = context,
+                        inputUri = file.uri,
+                        outputStream = outputStream,
+                        options = options,
+                        onProgress = { progress = it }
+                    )
+                    
+                    outputStream.close()
+                    
+                    result.fold(
+                        onSuccess = {
+                            resultSuccess = true
+                            resultMessage = "PDF protected successfully!"
+                            resultUri = outputUri
+                            selectedFile = null
+                            ownerPassword = ""
+                            userPassword = ""
+                        },
+                        onFailure = { error ->
+                            resultSuccess = false
+                            resultMessage = error.message ?: "Encryption failed"
+                        }
+                    )
+                } else {
+                    resultSuccess = false
+                    resultMessage = "Cannot create output file"
+                }
+                
+                isProcessing = false
+                showResult = true
+            }
+        }
+    }
+    
+    // Function to protect with default location
+    fun protectWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val file = selectedFile!!
+                    val baseName = file.name.removeSuffix(".pdf")
+                    val fileName = "${baseName}_protected.pdf"
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
                         val options = PdfSecurityOptions(
                             ownerPassword = ownerPassword,
                             userPassword = userPassword,
@@ -81,38 +145,43 @@ fun SecurityScreen(
                             allowModifying = allowModifying
                         )
                         
-                        val result = securityManager.encryptPdf(
+                        val encryptResult = securityManager.encryptPdf(
                             context = context,
                             inputUri = file.uri,
-                            outputStream = outputStream,
+                            outputStream = outputResult.outputStream,
                             options = options,
                             onProgress = { progress = it }
                         )
                         
-                        outputStream.close()
+                        outputResult.outputStream.close()
                         
-                        result.fold(
+                        encryptResult.fold(
                             onSuccess = {
-                                resultSuccess = true
-                                resultMessage = "PDF protected successfully!"
-                                selectedFile = null
-                                ownerPassword = ""
-                                userPassword = ""
+                                Triple(true, "PDF protected successfully!\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
                             },
                             onFailure = { error ->
-                                resultSuccess = false
-                                resultMessage = error.message ?: "Encryption failed"
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Encryption failed", null)
                             }
                         )
                     } else {
-                        resultSuccess = false
-                        resultMessage = "Cannot create output file"
+                        Triple(false, "Cannot create output file", null)
                     }
-                    
-                    isProcessing = false
-                    showResult = true
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Encryption failed", null)
                 }
             }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedFile = null
+                ownerPassword = ""
+                userPassword = ""
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -286,6 +355,14 @@ fun SecurityScreen(
                                 }
                             }
                         }
+                        
+                        // Save location option
+                        item {
+                            SaveLocationSelector(
+                                useCustomLocation = useCustomLocation,
+                                onUseCustomLocationChange = { useCustomLocation = it }
+                            )
+                        }
                     }
                 }
                 
@@ -334,8 +411,12 @@ fun SecurityScreen(
                         ActionButton(
                             text = "Protect PDF",
                             onClick = {
-                                val baseName = selectedFile!!.name.removeSuffix(".pdf")
-                                savePdfLauncher.launch("${baseName}_protected.pdf")
+                                if (useCustomLocation) {
+                                    val baseName = selectedFile!!.name.removeSuffix(".pdf")
+                                    savePdfLauncher.launch("${baseName}_protected.pdf")
+                                } else {
+                                    protectWithDefaultLocation()
+                                }
                             },
                             enabled = ownerPassword.isNotBlank(),
                             isLoading = isProcessing,
@@ -347,13 +428,20 @@ fun SecurityScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Protection Added" else "Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

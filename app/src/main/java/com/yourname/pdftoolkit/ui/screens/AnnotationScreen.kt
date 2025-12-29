@@ -29,6 +29,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourname.pdftoolkit.domain.operations.*
+import com.yourname.pdftoolkit.util.FileOpener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -215,7 +216,8 @@ class AnnotationViewModel : ViewModel() {
                 isProcessing = false,
                 isComplete = result.success,
                 error = result.errorMessage,
-                annotationsAdded = result.annotationsAdded
+                annotationsAdded = result.annotationsAdded,
+                resultUri = if (result.success) outputUri else null
             )
         }
     }
@@ -254,7 +256,8 @@ data class AnnotationUiState(
     val progress: Int = 0,
     val isComplete: Boolean = false,
     val error: String? = null,
-    val annotationsAdded: Int = 0
+    val annotationsAdded: Int = 0,
+    val resultUri: Uri? = null
 )
 
 /**
@@ -667,7 +670,7 @@ fun AnnotationScreen(
                             tint = MaterialTheme.colorScheme.tertiary
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Annotations Applied!",
                                 style = MaterialTheme.typography.titleMedium,
@@ -677,6 +680,15 @@ fun AnnotationScreen(
                                 "${state.annotationsAdded} annotations added",
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                        }
+                        state.resultUri?.let { uri ->
+                            FilledTonalButton(
+                                onClick = { FileOpener.openPdf(context, uri) }
+                            ) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Open")
+                            }
                         }
                     }
                 }

@@ -21,7 +21,11 @@ import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.PdfOrganizer
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for organizing PDF pages (remove, reorder).
@@ -45,6 +49,8 @@ fun OrganizeScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var useCustomLocation by remember { mutableStateOf(false) }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -60,7 +66,7 @@ fun OrganizeScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val saveFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -73,7 +79,6 @@ fun OrganizeScreen(
                 
                 context.contentResolver.openOutputStream(saveUri)?.use { outputStream ->
                     val result = if (isRemoveMode) {
-                        // Remove selected pages
                         organizer.removePages(
                             context = context,
                             inputUri = file.uri,
@@ -82,7 +87,6 @@ fun OrganizeScreen(
                             onProgress = { progress = it }
                         )
                     } else {
-                        // Keep only selected pages in order
                         organizer.reorderPages(
                             context = context,
                             inputUri = file.uri,
@@ -95,6 +99,7 @@ fun OrganizeScreen(
                     result.fold(
                         onSuccess = { organizeResult ->
                             resultSuccess = true
+                            resultUri = saveUri
                             resultMessage = if (isRemoveMode) {
                                 "Removed ${organizeResult.pagesRemoved} pages. Result has ${organizeResult.resultPageCount} pages."
                             } else {
@@ -116,6 +121,75 @@ fun OrganizeScreen(
                 isProcessing = false
                 showResult = true
             }
+        }
+    }
+    
+    // Function to organize with default location
+    fun organizeWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val file = selectedFile!!
+                    val baseName = file.name.removeSuffix(".pdf")
+                    val suffix = if (isRemoveMode) "_edited" else "_extracted"
+                    val fileName = "${baseName}${suffix}.pdf"
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val organizeResult = if (isRemoveMode) {
+                            organizer.removePages(
+                                context = context,
+                                inputUri = file.uri,
+                                outputStream = outputResult.outputStream,
+                                pagesToRemove = selectedPages,
+                                onProgress = { progress = it }
+                            )
+                        } else {
+                            organizer.reorderPages(
+                                context = context,
+                                inputUri = file.uri,
+                                outputStream = outputResult.outputStream,
+                                newOrder = selectedPages.sorted(),
+                                onProgress = { progress = it }
+                            )
+                        }
+                        
+                        outputResult.outputStream.close()
+                        
+                        organizeResult.fold(
+                            onSuccess = { oResult ->
+                                val message = if (isRemoveMode) {
+                                    "Removed ${oResult.pagesRemoved} pages. Result has ${oResult.resultPageCount} pages.\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}"
+                                } else {
+                                    "Extracted ${oResult.resultPageCount} pages.\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}"
+                                }
+                                Triple(true, message, outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Operation failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Operation failed", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedFile = null
+                selectedPages = setOf()
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -323,6 +397,14 @@ fun OrganizeScreen(
                             (isRemoveMode && selectedPages.size < pageCount) || 
                             (!isRemoveMode && selectedPages.isNotEmpty())
                         
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         ActionButton(
                             text = if (isRemoveMode) {
                                 "Remove ${selectedPages.size} Pages"
@@ -330,9 +412,13 @@ fun OrganizeScreen(
                                 "Keep ${selectedPages.size} Pages"
                             },
                             onClick = {
-                                val baseName = selectedFile!!.name.removeSuffix(".pdf")
-                                val suffix = if (isRemoveMode) "_edited" else "_extracted"
-                                saveFileLauncher.launch("${baseName}${suffix}.pdf")
+                                if (useCustomLocation) {
+                                    val baseName = selectedFile!!.name.removeSuffix(".pdf")
+                                    val suffix = if (isRemoveMode) "_edited" else "_extracted"
+                                    saveFileLauncher.launch("${baseName}${suffix}.pdf")
+                                } else {
+                                    organizeWithDefaultLocation()
+                                }
                             },
                             enabled = canProcess,
                             isLoading = isProcessing,
@@ -344,13 +430,20 @@ fun OrganizeScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Success" else "Error",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

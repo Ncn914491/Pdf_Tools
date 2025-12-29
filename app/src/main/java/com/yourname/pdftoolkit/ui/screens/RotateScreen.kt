@@ -26,7 +26,11 @@ import com.yourname.pdftoolkit.domain.operations.PdfRotator
 import com.yourname.pdftoolkit.domain.operations.PdfSplitter
 import com.yourname.pdftoolkit.domain.operations.RotationAngle
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for rotating PDF pages.
@@ -52,6 +56,8 @@ fun RotateScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -68,23 +74,79 @@ fun RotateScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
         uri?.let { outputUri ->
-            selectedFile?.let { file ->
-                scope.launch {
-                    isProcessing = true
-                    progress = 0f
+            val file = selectedFile ?: return@let
+            scope.launch {
+                isProcessing = true
+                progress = 0f
+                
+                val outputStream = context.contentResolver.openOutputStream(outputUri)
+                if (outputStream != null) {
+                    val result = if (rotateAllPages) {
+                        pdfRotator.rotateAllPages(
+                            context = context,
+                            inputUri = file.uri,
+                            outputStream = outputStream,
+                            angle = rotationAngle,
+                            onProgress = { progress = it }
+                        )
+                    } else {
+                        val rotations = selectedPages.associateWith { rotationAngle }
+                        pdfRotator.rotateSpecificPages(
+                            context = context,
+                            inputUri = file.uri,
+                            outputStream = outputStream,
+                            rotations = rotations,
+                            onProgress = { progress = it }
+                        )
+                    }
                     
-                    val outputStream = context.contentResolver.openOutputStream(outputUri)
-                    if (outputStream != null) {
-                        val result = if (rotateAllPages) {
+                    outputStream.close()
+                    
+                    result.fold(
+                        onSuccess = { count ->
+                            resultSuccess = true
+                            resultMessage = "Successfully rotated $count pages by ${rotationAngle.degrees}°"
+                            resultUri = outputUri
+                        },
+                        onFailure = { error ->
+                            resultSuccess = false
+                            resultMessage = error.message ?: "Rotation failed"
+                        }
+                    )
+                } else {
+                    resultSuccess = false
+                    resultMessage = "Cannot create output file"
+                }
+                
+                isProcessing = false
+                showResult = true
+            }
+        }
+    }
+    
+    // Function to rotate with default location
+    fun rotateWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val fileName = FileManager.generateOutputFileName("rotated")
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val file = selectedFile!!
+                        val rotateResult = if (rotateAllPages) {
                             pdfRotator.rotateAllPages(
                                 context = context,
                                 inputUri = file.uri,
-                                outputStream = outputStream,
+                                outputStream = outputResult.outputStream,
                                 angle = rotationAngle,
                                 onProgress = { progress = it }
                             )
@@ -93,35 +155,39 @@ fun RotateScreen(
                             pdfRotator.rotateSpecificPages(
                                 context = context,
                                 inputUri = file.uri,
-                                outputStream = outputStream,
+                                outputStream = outputResult.outputStream,
                                 rotations = rotations,
                                 onProgress = { progress = it }
                             )
                         }
                         
-                        outputStream.close()
+                        outputResult.outputStream.close()
                         
-                        result.fold(
+                        rotateResult.fold(
                             onSuccess = { count ->
-                                resultSuccess = true
-                                resultMessage = "Successfully rotated $count pages by ${rotationAngle.degrees}°"
+                                Triple(true, "Successfully rotated $count pages by ${rotationAngle.degrees}°\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
                             },
                             onFailure = { error ->
-                                resultSuccess = false
-                                resultMessage = error.message ?: "Rotation failed"
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Rotation failed", null)
                             }
                         )
                     } else {
-                        resultSuccess = false
-                        resultMessage = "Cannot create output file"
+                        Triple(false, "Cannot create output file", null)
                     }
-                    
-                    isProcessing = false
-                    showResult = true
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Rotation failed", null)
                 }
             }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            isProcessing = false
+            showResult = true
         }
     }
+
     
     Scaffold(
         topBar = {
@@ -361,6 +427,14 @@ fun RotateScreen(
                                 }
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
                     }
                 }
                 
@@ -416,8 +490,12 @@ fun RotateScreen(
                         ActionButton(
                             text = "Rotate $pageText",
                             onClick = {
-                                val fileName = FileManager.generateOutputFileName("rotated")
-                                savePdfLauncher.launch(fileName)
+                                if (useCustomLocation) {
+                                    val fileName = FileManager.generateOutputFileName("rotated")
+                                    savePdfLauncher.launch(fileName)
+                                } else {
+                                    rotateWithDefaultLocation()
+                                }
                             },
                             enabled = rotateAllPages || selectedPages.isNotEmpty(),
                             isLoading = isProcessing,
@@ -429,13 +507,20 @@ fun RotateScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Rotation Complete" else "Rotation Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

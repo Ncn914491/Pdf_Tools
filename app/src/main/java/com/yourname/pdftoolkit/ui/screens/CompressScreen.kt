@@ -23,7 +23,10 @@ import com.yourname.pdftoolkit.domain.operations.CompressionLevel
 import com.yourname.pdftoolkit.domain.operations.PdfCompressor
 import com.yourname.pdftoolkit.ui.components.*
 import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for compressing PDF files.
@@ -46,6 +49,7 @@ fun CompressScreen(
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
     var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -56,7 +60,7 @@ fun CompressScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -125,6 +129,78 @@ fun CompressScreen(
                     showResult = true
                 }
             }
+        }
+    }
+    
+    // Function to compress with default location
+    fun compressWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            val originalFile = selectedFile!!
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val fileName = FileManager.generateOutputFileName("compressed")
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val compressResult = pdfCompressor.compressPdf(
+                            context = context,
+                            inputUri = originalFile.uri,
+                            outputStream = outputResult.outputStream,
+                            level = compressionLevel,
+                            onProgress = { progress = it }
+                        )
+                        
+                        outputResult.outputStream.close()
+                        
+                        compressResult.fold(
+                            onSuccess = { cResult ->
+                                val compressedSize = outputResult.outputFile.file.length()
+                                val originalBytes = originalFile.size
+                                val savedBytes = originalBytes - compressedSize
+                                val savedPercent = if (originalBytes > 0) {
+                                    (savedBytes.toFloat() / originalBytes * 100).toInt()
+                                } else 0
+                                
+                                val message = buildString {
+                                    if (savedBytes > 0) {
+                                        append("Compression successful!\n\n")
+                                        append("Before: ${originalFile.formattedSize}\n")
+                                        append("After: ${FileManager.formatFileSize(compressedSize)}\n")
+                                        append("Saved: ${FileManager.formatFileSize(savedBytes)} ($savedPercent%)\n\n")
+                                    } else {
+                                        append("Compressed PDF saved.\n\n")
+                                        append("Before: ${originalFile.formattedSize}\n")
+                                        append("After: ${FileManager.formatFileSize(compressedSize)}\n\n")
+                                        append("Note: This PDF may already be optimized.\n\n")
+                                    }
+                                    append("Saved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}")
+                                }
+                                Triple(true, message, outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Compression failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Compression failed", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedFile = null
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -353,11 +429,23 @@ fun CompressScreen(
                             icon = Icons.Default.FolderOpen
                         )
                     } else {
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         ActionButton(
                             text = "Compress PDF",
                             onClick = {
-                                val fileName = FileManager.generateOutputFileName("compressed")
-                                savePdfLauncher.launch(fileName)
+                                if (useCustomLocation) {
+                                    val fileName = FileManager.generateOutputFileName("compressed")
+                                    savePdfLauncher.launch(fileName)
+                                } else {
+                                    compressWithDefaultLocation()
+                                }
                             },
                             isLoading = isProcessing,
                             icon = Icons.Default.Compress

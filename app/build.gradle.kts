@@ -12,10 +12,10 @@ android {
 
     defaultConfig {
         applicationId = "com.yourname.pdftoolkit"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.2.1"
+        versionCode = 7
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -90,6 +90,9 @@ android {
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/LICENSE"
             excludes += "META-INF/NOTICE"
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/NOTICE.md"
+            excludes += "META-INF/versions/9/module-info.class"
         }
     }
     
@@ -144,6 +147,24 @@ dependencies {
     
     // Coil for image loading (Apache 2.0) - lightweight (~2MB)
     implementation("io.coil-kt:coil-compose:2.5.0")
+    
+    // Apache POI for Office documents (DOCX, XLSX, PPTX) - Apache 2.0
+    // Using version 4.1.2 for minSdk 24 compatibility (5.x requires minSdk 26)
+    implementation("org.apache.poi:poi-ooxml:4.1.2") {
+        exclude(group = "org.apache.logging.log4j")
+        exclude(group = "org.slf4j")
+        exclude(group = "stax", module = "stax-api")
+    }
+    implementation("org.apache.poi:poi:4.1.2") {
+        exclude(group = "org.apache.logging.log4j")
+        exclude(group = "org.slf4j")
+    }
+    // XMLBeans for OOXML parsing (compatible version)
+    implementation("org.apache.xmlbeans:xmlbeans:3.1.0") {
+        exclude(group = "org.apache.logging.log4j")
+    }
+    // Commons Compress for ZIP handling
+    implementation("org.apache.commons:commons-compress:1.21")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

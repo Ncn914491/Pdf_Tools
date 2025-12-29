@@ -23,7 +23,11 @@ import com.yourname.pdftoolkit.domain.operations.EditableMetadata
 import com.yourname.pdftoolkit.domain.operations.PdfMetadata
 import com.yourname.pdftoolkit.domain.operations.PdfMetadataManager
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for viewing and editing PDF metadata.
@@ -54,6 +58,8 @@ fun MetadataScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -84,7 +90,7 @@ fun MetadataScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -116,6 +122,7 @@ fun MetadataScreen(
                         result.fold(
                             onSuccess = {
                                 resultSuccess = true
+                                resultUri = outputUri
                                 resultMessage = "Metadata updated successfully"
                                 isEditing = false
                             },
@@ -133,6 +140,64 @@ fun MetadataScreen(
                     showResult = true
                 }
             }
+        }
+    }
+    
+    // Function to save with default location
+    fun saveWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val file = selectedFile!!
+                    val fileName = FileManager.generateOutputFileName("updated")
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val editedMetadata = EditableMetadata(
+                            title = editTitle.takeIf { it.isNotBlank() },
+                            author = editAuthor.takeIf { it.isNotBlank() },
+                            subject = editSubject.takeIf { it.isNotBlank() },
+                            keywords = editKeywords.takeIf { it.isNotBlank() }
+                        )
+                        
+                        val updateResult = metadataManager.updateMetadata(
+                            context = context,
+                            inputUri = file.uri,
+                            outputStream = outputResult.outputStream,
+                            metadata = editedMetadata,
+                            onProgress = { progress = it }
+                        )
+                        
+                        outputResult.outputStream.close()
+                        
+                        updateResult.fold(
+                            onSuccess = {
+                                Triple(true, "Metadata updated successfully\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Update failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Update failed", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                isEditing = false
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -425,11 +490,23 @@ fun MetadataScreen(
                             )
                         }
                         isEditing -> {
+                            // Save location option
+                            SaveLocationSelector(
+                                useCustomLocation = useCustomLocation,
+                                onUseCustomLocationChange = { useCustomLocation = it }
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
                             ActionButton(
                                 text = "Save Changes",
                                 onClick = {
-                                    val fileName = FileManager.generateOutputFileName("updated")
-                                    savePdfLauncher.launch(fileName)
+                                    if (useCustomLocation) {
+                                        val fileName = FileManager.generateOutputFileName("updated")
+                                        savePdfLauncher.launch(fileName)
+                                    } else {
+                                        saveWithDefaultLocation()
+                                    }
                                 },
                                 isLoading = isProcessing,
                                 icon = Icons.Default.Save
@@ -455,13 +532,20 @@ fun MetadataScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Update Complete" else "Update Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

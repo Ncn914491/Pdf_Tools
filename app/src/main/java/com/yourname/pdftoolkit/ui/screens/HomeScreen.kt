@@ -1,5 +1,8 @@
 package com.yourname.pdftoolkit.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
@@ -17,10 +20,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.pdftoolkit.ui.navigation.Screen
-import com.yourname.pdftoolkit.util.CacheManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Category tabs for organizing PDF tools.
@@ -33,6 +32,17 @@ enum class ToolCategory(val title: String, val icon: ImageVector) {
     OPTIMIZE("Optimize", Icons.Default.Speed)
 }
 
+// Supported file types
+private val pdfMimeTypes = arrayOf("application/pdf")
+private val officeMimeTypes = arrayOf(
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
+    "application/msword", // doc
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // xlsx
+    "application/vnd.ms-excel", // xls
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation", // pptx
+    "application/vnd.ms-powerpoint" // ppt
+)
 
 /**
  * Home screen displaying all available PDF tools organized by category.
@@ -41,20 +51,57 @@ enum class ToolCategory(val title: String, val icon: ImageVector) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onNavigateToFeature: (Screen) -> Unit
+    onNavigateToFeature: (Screen) -> Unit,
+    onNavigateToSettings: () -> Unit = {},
+    onOpenPdfViewer: (Uri, String) -> Unit = { _, _ -> },
+    onOpenDocumentViewer: (Uri, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var selectedCategory by remember { mutableStateOf(ToolCategory.ORGANIZE) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
-    var cacheSize by remember { mutableStateOf("Calculating...") }
-    var isClearing by remember { mutableStateOf(false) }
     
-    // Calculate cache size when settings dialog opens
-    LaunchedEffect(showSettingsDialog) {
-        if (showSettingsDialog) {
-            withContext(Dispatchers.IO) {
-                cacheSize = CacheManager.getFormattedCacheSize(context)
+    // PDF file picker
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        // uri is null when user cancels - just do nothing
+        uri?.let {
+            val cursor = context.contentResolver.query(it, null, null, null, null)
+            var name = "PDF Document"
+            cursor?.use { c ->
+                if (c.moveToFirst()) {
+                    val nameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        name = c.getString(nameIndex)?.substringBeforeLast('.') ?: name
+                    }
+                }
+            }
+            onOpenPdfViewer(it, name)
+        }
+    }
+    
+    // Document file picker (All supported formats)
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        // uri is null when user cancels - just do nothing (handles cancel issue)
+        uri?.let {
+            val mimeType = context.contentResolver.getType(it)
+            val cursor = context.contentResolver.query(it, null, null, null, null)
+            var name = "Document"
+            cursor?.use { c ->
+                if (c.moveToFirst()) {
+                    val nameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        name = c.getString(nameIndex)?.substringBeforeLast('.') ?: name
+                    }
+                }
+            }
+            
+            // Route to appropriate viewer based on MIME type
+            if (mimeType == "application/pdf") {
+                onOpenPdfViewer(it, name)
+            } else {
+                onOpenDocumentViewer(it, name)
             }
         }
     }
@@ -69,7 +116,19 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = { showSettingsDialog = true }) {
+                    // Open Document button (all formats)
+                    IconButton(
+                        onClick = {
+                            documentPickerLauncher.launch(officeMimeTypes)
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = "Open Document"
+                        )
+                    }
+                    // Settings button
+                    IconButton(onClick = onNavigateToSettings) {
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Settings"
@@ -79,6 +138,17 @@ fun HomeScreen(
                 colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = {
+                    documentPickerLauncher.launch(officeMimeTypes)
+                },
+                icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
+                text = { Text("Open Document") },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { paddingValues ->
@@ -118,7 +188,7 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
+                contentPadding = PaddingValues(vertical = 16.dp, horizontal = 0.dp)
             ) {
                 itemsIndexed(
                     items = features,
@@ -147,78 +217,13 @@ fun HomeScreen(
                         modifier = Modifier.scale(scale)
                     )
                 }
+                
+                // Bottom spacing for FAB
+                item {
+                    Spacer(modifier = Modifier.height(72.dp))
+                }
             }
         }
-    }
-    
-    // Settings Dialog
-    if (showSettingsDialog) {
-        AlertDialog(
-            onDismissRequest = { showSettingsDialog = false },
-            icon = {
-                Icon(Icons.Default.Settings, contentDescription = null)
-            },
-            title = { Text("Settings") },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Cache info
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                "Cache Size",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            Text(
-                                cacheSize,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                isClearing = true
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        CacheManager.clearAllCache(context)
-                                    }
-                                    cacheSize = CacheManager.getFormattedCacheSize(context)
-                                    isClearing = false
-                                }
-                            },
-                            enabled = !isClearing
-                        ) {
-                            if (isClearing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Text("Clear")
-                            }
-                        }
-                    }
-                    
-                    Divider()
-                    
-                    Text(
-                        "PDF Toolkit v1.2.0",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSettingsDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
     }
 }
 

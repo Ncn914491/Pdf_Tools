@@ -23,7 +23,11 @@ import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.PdfSplitter
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Split modes available in the UI.
@@ -58,6 +62,8 @@ fun SplitScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -74,61 +80,89 @@ fun SplitScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
         uri?.let { outputUri ->
-            selectedFile?.let { file ->
-                scope.launch {
-                    isProcessing = true
-                    progress = 0f
+            performSplit(
+                context = context,
+                scope = scope,
+                pdfSplitter = pdfSplitter,
+                file = selectedFile!!,
+                selectedMode = selectedMode,
+                startPage = startPage,
+                endPage = endPage,
+                specificPages = specificPages,
+                pageCount = pageCount,
+                outputUri = outputUri,
+                onProgress = { progress = it },
+                onProcessing = { isProcessing = it },
+                onResult = { success, message, uri ->
+                    resultSuccess = success
+                    resultMessage = message
+                    resultUri = uri
+                    showResult = true
+                }
+            )
+        }
+    }
+    
+    // Function to split with default location
+    fun splitWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val fileName = FileManager.generateOutputFileName("split")
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
                     
-                    val outputStream = context.contentResolver.openOutputStream(outputUri)
-                    if (outputStream != null) {
+                    if (outputResult != null) {
+                        val file = selectedFile!!
                         val pages = when (selectedMode) {
                             SplitMode.EXTRACT_RANGE -> {
                                 val start = startPage.toIntOrNull() ?: 1
                                 val end = endPage.toIntOrNull() ?: pageCount
                                 (start..end).toList()
                             }
-                            SplitMode.SPECIFIC_PAGES -> {
-                                parsePageNumbers(specificPages, pageCount)
-                            }
-                            SplitMode.ALL_PAGES -> {
-                                (1..pageCount).toList()
-                            }
+                            SplitMode.SPECIFIC_PAGES -> parsePageNumbers(specificPages, pageCount)
+                            SplitMode.ALL_PAGES -> (1..pageCount).toList()
                         }
                         
-                        val result = pdfSplitter.extractPages(
+                        val splitResult = pdfSplitter.extractPages(
                             context = context,
                             inputUri = file.uri,
                             pageNumbers = pages,
-                            outputStream = outputStream,
+                            outputStream = outputResult.outputStream,
                             onProgress = { progress = it }
                         )
                         
-                        outputStream.close()
+                        outputResult.outputStream.close()
                         
-                        result.fold(
+                        splitResult.fold(
                             onSuccess = { count ->
-                                resultSuccess = true
-                                resultMessage = "Successfully extracted $count pages"
+                                Triple(true, "Successfully extracted $count pages\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
                             },
                             onFailure = { error ->
-                                resultSuccess = false
-                                resultMessage = error.message ?: "Split failed"
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Split failed", null)
                             }
                         )
                     } else {
-                        resultSuccess = false
-                        resultMessage = "Cannot create output file"
+                        Triple(false, "Cannot create output file", null)
                     }
-                    
-                    isProcessing = false
-                    showResult = true
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Split failed", null)
                 }
             }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -281,6 +315,14 @@ fun SplitScreen(
                                 }
                             }
                         }
+                        
+                        // Save location option
+                        item {
+                            SaveLocationSelector(
+                                useCustomLocation = useCustomLocation,
+                                onUseCustomLocationChange = { useCustomLocation = it }
+                            )
+                        }
                     }
                 }
                 
@@ -347,8 +389,12 @@ fun SplitScreen(
                         ActionButton(
                             text = "Split ($pageInfo)",
                             onClick = {
-                                val fileName = FileManager.generateOutputFileName("split")
-                                savePdfLauncher.launch(fileName)
+                                if (useCustomLocation) {
+                                    val fileName = FileManager.generateOutputFileName("split")
+                                    savePdfLauncher.launch(fileName)
+                                } else {
+                                    splitWithDefaultLocation()
+                                }
                             },
                             enabled = isValidInput(selectedMode, startPage, endPage, specificPages, pageCount),
                             isLoading = isProcessing,
@@ -360,14 +406,78 @@ fun SplitScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Split Complete" else "Split Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
+    }
+}
+
+private fun performSplit(
+    context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    pdfSplitter: PdfSplitter,
+    file: PdfFileInfo,
+    selectedMode: SplitMode,
+    startPage: String,
+    endPage: String,
+    specificPages: String,
+    pageCount: Int,
+    outputUri: Uri,
+    onProgress: (Float) -> Unit,
+    onProcessing: (Boolean) -> Unit,
+    onResult: (Boolean, String, Uri?) -> Unit
+) {
+    scope.launch {
+        onProcessing(true)
+        onProgress(0f)
+        
+        val outputStream = context.contentResolver.openOutputStream(outputUri)
+        if (outputStream != null) {
+            val pages = when (selectedMode) {
+                SplitMode.EXTRACT_RANGE -> {
+                    val start = startPage.toIntOrNull() ?: 1
+                    val end = endPage.toIntOrNull() ?: pageCount
+                    (start..end).toList()
+                }
+                SplitMode.SPECIFIC_PAGES -> parsePageNumbers(specificPages, pageCount)
+                SplitMode.ALL_PAGES -> (1..pageCount).toList()
+            }
+            
+            val result = pdfSplitter.extractPages(
+                context = context,
+                inputUri = file.uri,
+                pageNumbers = pages,
+                outputStream = outputStream,
+                onProgress = onProgress
+            )
+            
+            outputStream.close()
+            
+            result.fold(
+                onSuccess = { count ->
+                    onResult(true, "Successfully extracted $count pages", outputUri)
+                },
+                onFailure = { error ->
+                    onResult(false, error.message ?: "Split failed", null)
+                }
+            )
+        } else {
+            onResult(false, "Cannot create output file", null)
+        }
+        
+        onProcessing(false)
     }
 }
 

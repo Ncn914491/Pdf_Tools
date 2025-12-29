@@ -1,5 +1,6 @@
 package com.yourname.pdftoolkit.ui.screens
 
+import android.net.Uri
 import android.webkit.URLUtil
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,7 +19,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.yourname.pdftoolkit.domain.operations.HtmlToPdfConverter
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for converting HTML/URLs to PDF.
@@ -41,6 +46,8 @@ fun HtmlToPdfScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var useCustomLocation by remember { mutableStateOf(false) }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
     
     val isInputValid = when (inputMode) {
         InputMode.URL -> urlInput.isNotBlank() && 
@@ -48,7 +55,7 @@ fun HtmlToPdfScreen(
         InputMode.HTML -> htmlInput.isNotBlank()
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val saveFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -76,6 +83,7 @@ fun HtmlToPdfScreen(
                     result.fold(
                         onSuccess = { conversionResult ->
                             resultSuccess = true
+                            resultUri = saveUri
                             resultMessage = "PDF created successfully!\n\nPages: ${conversionResult.pageCount}"
                             urlInput = ""
                             htmlInput = ""
@@ -93,6 +101,74 @@ fun HtmlToPdfScreen(
                 isProcessing = false
                 showResult = true
             }
+        }
+    }
+    
+    // Function to convert with default location
+    fun convertWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val fileName = when (inputMode) {
+                        InputMode.URL -> {
+                            val domain = try {
+                                java.net.URL(urlInput).host.replace("www.", "")
+                            } catch (e: Exception) {
+                                "webpage"
+                            }
+                            "${domain}_${System.currentTimeMillis()}.pdf"
+                        }
+                        InputMode.HTML -> "html_document_${System.currentTimeMillis()}.pdf"
+                    }
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val convResult = when (inputMode) {
+                            InputMode.URL -> converter.convertUrlToPdf(
+                                context = context,
+                                url = urlInput,
+                                outputStream = outputResult.outputStream,
+                                onProgress = { progress = it }
+                            )
+                            InputMode.HTML -> converter.convertHtmlToPdf(
+                                context = context,
+                                htmlContent = htmlInput,
+                                outputStream = outputResult.outputStream,
+                                onProgress = { progress = it }
+                            )
+                        }
+                        
+                        outputResult.outputStream.close()
+                        
+                        convResult.fold(
+                            onSuccess = { cResult ->
+                                Triple(true, "PDF created successfully!\n\nPages: ${cResult.pageCount}\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Conversion failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Conversion failed", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                urlInput = ""
+                htmlInput = ""
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -324,21 +400,33 @@ fun HtmlToPdfScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
+                    // Save location option
+                    SaveLocationSelector(
+                        useCustomLocation = useCustomLocation,
+                        onUseCustomLocationChange = { useCustomLocation = it }
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
                     ActionButton(
                         text = "Convert to PDF",
                         onClick = {
-                            val fileName = when (inputMode) {
-                                InputMode.URL -> {
-                                    val domain = try {
-                                        java.net.URL(urlInput).host.replace("www.", "")
-                                    } catch (e: Exception) {
-                                        "webpage"
+                            if (useCustomLocation) {
+                                val fileName = when (inputMode) {
+                                    InputMode.URL -> {
+                                        val domain = try {
+                                            java.net.URL(urlInput).host.replace("www.", "")
+                                        } catch (e: Exception) {
+                                            "webpage"
+                                        }
+                                        "${domain}_${System.currentTimeMillis()}.pdf"
                                     }
-                                    "${domain}_${System.currentTimeMillis()}.pdf"
+                                    InputMode.HTML -> "html_document_${System.currentTimeMillis()}.pdf"
                                 }
-                                InputMode.HTML -> "html_document_${System.currentTimeMillis()}.pdf"
+                                saveFileLauncher.launch(fileName)
+                            } else {
+                                convertWithDefaultLocation()
                             }
-                            saveFileLauncher.launch(fileName)
                         },
                         enabled = isInputValid,
                         isLoading = isProcessing,
@@ -349,13 +437,20 @@ fun HtmlToPdfScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Conversion Complete" else "Conversion Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

@@ -23,7 +23,11 @@ import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.PdfUnlocker
 import com.yourname.pdftoolkit.domain.operations.UnlockError
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for unlocking password-protected PDFs.
@@ -47,6 +51,8 @@ fun UnlockScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -64,7 +70,7 @@ fun UnlockScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val saveFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -87,6 +93,7 @@ fun UnlockScreen(
                     result.fold(
                         onSuccess = { unlockResult ->
                             resultSuccess = true
+                            resultUri = saveUri
                             resultMessage = buildString {
                                 append("PDF unlocked successfully!")
                                 unlockResult.originalPermissions?.let { perms ->
@@ -120,6 +127,77 @@ fun UnlockScreen(
                 isProcessing = false
                 showResult = true
             }
+        }
+    }
+    
+    // Function to unlock with default location
+    fun unlockWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val file = selectedFile!!
+                    val baseName = file.name.removeSuffix(".pdf")
+                    val fileName = "${baseName}_unlocked.pdf"
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val unlockResult = unlocker.unlockPdf(
+                            context = context,
+                            inputUri = file.uri,
+                            outputStream = outputResult.outputStream,
+                            password = password,
+                            onProgress = { progress = it }
+                        )
+                        
+                        outputResult.outputStream.close()
+                        
+                        unlockResult.fold(
+                            onSuccess = { result ->
+                                val message = buildString {
+                                    append("PDF unlocked successfully!\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}")
+                                    result.originalPermissions?.let { perms ->
+                                        append("\n\nOriginal restrictions:")
+                                        if (!perms.canPrint) append("\n• Printing was disabled")
+                                        if (!perms.canCopy) append("\n• Copying was disabled")
+                                        if (!perms.canModify) append("\n• Editing was disabled")
+                                        if (!perms.canAnnotate) append("\n• Annotations were disabled")
+                                    }
+                                }
+                                Triple(true, message, outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                val errorMsg = when (error) {
+                                    is UnlockError.IncorrectPassword -> "Incorrect password. Please try again."
+                                    is UnlockError.NotEncrypted -> "This PDF is not encrypted."
+                                    is UnlockError.FileNotFound -> "Cannot open the file."
+                                    is UnlockError.EmptyDocument -> "The PDF has no pages."
+                                    is UnlockError.GenericError -> error.message
+                                    else -> error.message ?: "Failed to unlock PDF"
+                                }
+                                Triple(false, errorMsg, null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Failed to unlock PDF", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedFile = null
+                password = ""
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -339,11 +417,23 @@ fun UnlockScreen(
                             icon = Icons.Default.FolderOpen
                         )
                     } else {
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         ActionButton(
                             text = "Unlock PDF",
                             onClick = {
-                                val baseName = selectedFile!!.name.removeSuffix(".pdf")
-                                saveFileLauncher.launch("${baseName}_unlocked.pdf")
+                                if (useCustomLocation) {
+                                    val baseName = selectedFile!!.name.removeSuffix(".pdf")
+                                    saveFileLauncher.launch("${baseName}_unlocked.pdf")
+                                } else {
+                                    unlockWithDefaultLocation()
+                                }
                             },
                             enabled = isEncrypted == true && password.isNotEmpty(),
                             isLoading = isProcessing,
@@ -355,13 +445,20 @@ fun UnlockScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "PDF Unlocked" else "Unlock Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

@@ -6,6 +6,12 @@ package com.yourname.pdftoolkit.ui.navigation
  */
 sealed class Screen(val route: String) {
     object Home : Screen("home")
+    object Settings : Screen("settings")
+    object PdfViewer : Screen("pdf_viewer?uri={uri}&name={name}") {
+        fun createRoute(uri: String, name: String): String {
+            return "pdf_viewer?uri=$uri&name=$name"
+        }
+    }
     object Merge : Screen("merge")
     object Split : Screen("split")
     object Compress : Screen("compress")
@@ -30,6 +36,13 @@ sealed class Screen(val route: String) {
     object Annotate : Screen("annotate")
     object ScanToPdf : Screen("scan_to_pdf")
     object Ocr : Screen("ocr")
+    
+    // Document Viewer for Office files
+    object DocumentViewer : Screen("document_viewer?uri={uri}&name={name}") {
+        fun createRoute(uri: String, name: String): String {
+            return "document_viewer?uri=$uri&name=$name"
+        }
+    }
     
     companion object {
         /**

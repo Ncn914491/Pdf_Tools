@@ -19,7 +19,11 @@ import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.PdfRepairer
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for repairing corrupted PDFs.
@@ -42,6 +46,8 @@ fun RepairScreen(
     var resultMessage by remember { mutableStateOf("") }
     var diagnostics by remember { mutableStateOf<List<String>>(emptyList()) }
     var isDiagnosing by remember { mutableStateOf(false) }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -60,7 +66,7 @@ fun RepairScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val saveFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -82,6 +88,7 @@ fun RepairScreen(
                     result.fold(
                         onSuccess = { repairResult ->
                             resultSuccess = true
+                            resultUri = saveUri
                             resultMessage = buildString {
                                 if (repairResult.wasCorrupted) {
                                     append("PDF was corrupted and has been repaired!\n\n")
@@ -111,6 +118,72 @@ fun RepairScreen(
                 isProcessing = false
                 showResult = true
             }
+        }
+    }
+    
+    // Function to repair with default location
+    fun repairWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val file = selectedFile!!
+                    val baseName = file.name.removeSuffix(".pdf")
+                    val fileName = "${baseName}_repaired.pdf"
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val repairResult = repairer.repairPdf(
+                            context = context,
+                            inputUri = file.uri,
+                            outputStream = outputResult.outputStream,
+                            onProgress = { progress = it }
+                        )
+                        
+                        outputResult.outputStream.close()
+                        
+                        repairResult.fold(
+                            onSuccess = { result ->
+                                val message = buildString {
+                                    if (result.wasCorrupted) {
+                                        append("PDF was corrupted and has been repaired!\n\n")
+                                    } else {
+                                        append("PDF appears to be healthy.\n\n")
+                                    }
+                                    append("Pages recovered: ${result.pagesRecovered}\n")
+                                    append("\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}")
+                                    if (result.repairNotes.isNotEmpty()) {
+                                        append("\n\nNotes:\n")
+                                        result.repairNotes.forEach { note ->
+                                            append("• $note\n")
+                                        }
+                                    }
+                                }
+                                Triple(true, message, outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Repair failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
+                    }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Repair failed", null)
+                }
+            }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            if (resultSuccess) {
+                selectedFile = null
+            }
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -287,11 +360,23 @@ fun RepairScreen(
                             icon = Icons.Default.FolderOpen
                         )
                     } else {
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         ActionButton(
                             text = "Repair PDF",
                             onClick = {
-                                val baseName = selectedFile!!.name.removeSuffix(".pdf")
-                                saveFileLauncher.launch("${baseName}_repaired.pdf")
+                                if (useCustomLocation) {
+                                    val baseName = selectedFile!!.name.removeSuffix(".pdf")
+                                    saveFileLauncher.launch("${baseName}_repaired.pdf")
+                                } else {
+                                    repairWithDefaultLocation()
+                                }
                             },
                             isLoading = isProcessing,
                             icon = Icons.Default.Build
@@ -302,13 +387,20 @@ fun RepairScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Repair Complete" else "Repair Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

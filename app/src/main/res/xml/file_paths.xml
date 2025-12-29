@@ -3,4 +3,6 @@
     <cache-path name="shared_cache" path="." />
     <files-path name="shared_files" path="." />
     <external-path name="external_files" path="." />
+    <external-files-path name="output_folder" path="Documents/PDF Toolkit" />
 </paths>
+

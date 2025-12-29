@@ -26,7 +26,11 @@ import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.PdfSplitter
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.FileOpener
+import com.yourname.pdftoolkit.util.OutputFolderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Screen for extracting specific pages from PDF.
@@ -49,6 +53,8 @@ fun ExtractScreen(
     var showResult by remember { mutableStateOf(false) }
     var resultSuccess by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
+    var resultUri by remember { mutableStateOf<Uri?>(null) }
+    var useCustomLocation by remember { mutableStateOf(false) }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(
@@ -65,49 +71,97 @@ fun ExtractScreen(
         }
     }
     
-    // Save file launcher
+    // Save file launcher (for custom location)
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
         uri?.let { outputUri ->
-            selectedFile?.let { file ->
-                if (selectedPages.isNotEmpty()) {
-                    scope.launch {
-                        isProcessing = true
-                        progress = 0f
-                        
-                        val outputStream = context.contentResolver.openOutputStream(outputUri)
-                        if (outputStream != null) {
-                            val result = pdfSplitter.extractPages(
-                                context = context,
-                                inputUri = file.uri,
-                                pageNumbers = selectedPages.sorted(),
-                                outputStream = outputStream,
-                                onProgress = { progress = it }
-                            )
-                            
-                            outputStream.close()
-                            
-                            result.fold(
-                                onSuccess = { count ->
-                                    resultSuccess = true
-                                    resultMessage = "Successfully extracted $count pages"
-                                },
-                                onFailure = { error ->
-                                    resultSuccess = false
-                                    resultMessage = error.message ?: "Extraction failed"
-                                }
-                            )
-                        } else {
+            val file = selectedFile ?: return@let
+            if (selectedPages.isEmpty()) return@let
+            
+            scope.launch {
+                isProcessing = true
+                progress = 0f
+                
+                val outputStream = context.contentResolver.openOutputStream(outputUri)
+                if (outputStream != null) {
+                    val result = pdfSplitter.extractPages(
+                        context = context,
+                        inputUri = file.uri,
+                        pageNumbers = selectedPages.sorted(),
+                        outputStream = outputStream,
+                        onProgress = { progress = it }
+                    )
+                    
+                    outputStream.close()
+                    
+                    result.fold(
+                        onSuccess = { count ->
+                            resultSuccess = true
+                            resultMessage = "Successfully extracted $count pages"
+                            resultUri = outputUri
+                        },
+                        onFailure = { error ->
                             resultSuccess = false
-                            resultMessage = "Cannot create output file"
+                            resultMessage = error.message ?: "Extraction failed"
                         }
+                    )
+                } else {
+                    resultSuccess = false
+                    resultMessage = "Cannot create output file"
+                }
+                
+                isProcessing = false
+                showResult = true
+            }
+        }
+    }
+    
+    // Function to extract with default location
+    fun extractWithDefaultLocation() {
+        scope.launch {
+            isProcessing = true
+            progress = 0f
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val fileName = FileManager.generateOutputFileName("extracted")
+                    val outputResult = OutputFolderManager.createOutputStream(context, fileName)
+                    
+                    if (outputResult != null) {
+                        val file = selectedFile!!
+                        val extractResult = pdfSplitter.extractPages(
+                            context = context,
+                            inputUri = file.uri,
+                            pageNumbers = selectedPages.sorted(),
+                            outputStream = outputResult.outputStream,
+                            onProgress = { progress = it }
+                        )
                         
-                        isProcessing = false
-                        showResult = true
+                        outputResult.outputStream.close()
+                        
+                        extractResult.fold(
+                            onSuccess = { count ->
+                                Triple(true, "Successfully extracted $count pages\n\nSaved to: ${OutputFolderManager.getOutputFolderPath(context)}/${outputResult.outputFile.fileName}", outputResult.outputFile.contentUri)
+                            },
+                            onFailure = { error ->
+                                outputResult.outputFile.file.delete()
+                                Triple(false, error.message ?: "Extraction failed", null)
+                            }
+                        )
+                    } else {
+                        Triple(false, "Cannot create output file", null)
                     }
+                } catch (e: Exception) {
+                    Triple(false, e.message ?: "Extraction failed", null)
                 }
             }
+            
+            resultSuccess = result.first
+            resultMessage = result.second
+            resultUri = result.third
+            isProcessing = false
+            showResult = true
         }
     }
     
@@ -248,6 +302,14 @@ fun ExtractScreen(
                                 )
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Save location option
+                        SaveLocationSelector(
+                            useCustomLocation = useCustomLocation,
+                            onUseCustomLocationChange = { useCustomLocation = it }
+                        )
                     }
                 }
                 
@@ -302,8 +364,12 @@ fun ExtractScreen(
                         ActionButton(
                             text = "Extract ${selectedPages.size} Pages",
                             onClick = {
-                                val fileName = FileManager.generateOutputFileName("extracted")
-                                savePdfLauncher.launch(fileName)
+                                if (useCustomLocation) {
+                                    val fileName = FileManager.generateOutputFileName("extracted")
+                                    savePdfLauncher.launch(fileName)
+                                } else {
+                                    extractWithDefaultLocation()
+                                }
                             },
                             enabled = selectedPages.isNotEmpty(),
                             isLoading = isProcessing,
@@ -315,13 +381,20 @@ fun ExtractScreen(
         }
     }
     
-    // Result dialog
+    // Result dialog with View option
     if (showResult) {
         ResultDialog(
             isSuccess = resultSuccess,
             title = if (resultSuccess) "Extraction Complete" else "Extraction Failed",
             message = resultMessage,
-            onDismiss = { showResult = false }
+            onDismiss = { 
+                showResult = false
+                resultUri = null
+            },
+            onAction = resultUri?.let { uri ->
+                { FileOpener.openPdf(context, uri) }
+            },
+            actionText = "Open PDF"
         )
     }
 }

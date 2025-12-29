@@ -21,6 +21,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourname.pdftoolkit.domain.operations.FlattenConfig
 import com.yourname.pdftoolkit.domain.operations.PdfFlattener
+import com.yourname.pdftoolkit.util.FileOpener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -93,7 +94,8 @@ class FlattenViewModel : ViewModel() {
                 isComplete = result.success,
                 error = result.errorMessage,
                 annotationsFlattened = result.annotationsFlattened,
-                formsFlattened = result.formsFlattened
+                formsFlattened = result.formsFlattened,
+                resultUri = if (result.success) outputUri else null
             )
         }
     }
@@ -115,7 +117,8 @@ data class FlattenUiState(
     val isComplete: Boolean = false,
     val error: String? = null,
     val annotationsFlattened: Int = 0,
-    val formsFlattened: Int = 0
+    val formsFlattened: Int = 0,
+    val resultUri: Uri? = null
 )
 
 /**
@@ -398,7 +401,7 @@ fun FlattenScreen(
                             tint = MaterialTheme.colorScheme.tertiary
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "PDF Flattened!",
                                 style = MaterialTheme.typography.titleMedium,
@@ -409,6 +412,15 @@ fun FlattenScreen(
                                     "${state.annotationsFlattened} annotations, ${state.formsFlattened} form fields processed",
                                     style = MaterialTheme.typography.bodyMedium
                                 )
+                            }
+                        }
+                        state.resultUri?.let { uri ->
+                            FilledTonalButton(
+                                onClick = { FileOpener.openPdf(context, uri) }
+                            ) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Open")
                             }
                         }
                     }
