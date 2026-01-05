@@ -1,16 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy - PDF Toolkit</title>
     <style>
         :root {
-            --primary-color: #2563eb;
+            --primary-color: #d32f2f;
             --text-color: #1f2937;
             --bg-color: #f9fafb;
             --card-bg: #ffffff;
         }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             line-height: 1.6;
@@ -19,6 +21,7 @@
             margin: 0;
             padding: 0;
         }
+
         .container {
             max-width: 800px;
             margin: 2rem auto;
@@ -27,77 +30,198 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             border-radius: 0.5rem;
         }
+
         h1 {
             color: var(--primary-color);
-            border-bottom: 2px solid var(--primary-color);
+            border-bottom: 3px solid var(--primary-color);
             padding-bottom: 0.5rem;
         }
+
         h2 {
             margin-top: 2rem;
             color: var(--primary-color);
         }
+
+        h3 {
+            margin-top: 1.5rem;
+            color: #555;
+        }
+
         ul {
             padding-left: 1.5rem;
         }
+
+        li {
+            margin: 0.5rem 0;
+        }
+
+        .highlight {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+
         .footer {
             text-align: center;
             margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid #e5e7eb;
             font-size: 0.875rem;
             color: #6b7280;
         }
+
+        strong {
+            color: var(--primary-color);
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>Privacy Policy for PDF Toolkit</h1>
-        <p><strong>Last updated: December 25, 2025</strong></p>
+        <p><strong>Last Updated: January 4, 2026</strong></p>
 
-        <h2>Overview</h2>
-        <p>PDF Toolkit ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how our mobile application handles information when you use our PDF processing services.</p>
+        <div class="highlight">
+            <strong>TL;DR:</strong> PDF Toolkit is a 100% offline app. We don't collect, store, transmit, or have access
+            to any of your data. Your files never leave your device.
+        </div>
 
-        <h2>Information We Collect</h2>
-        <p><strong>We do not collect any personal information.</strong> PDF Toolkit is designed to work entirely offline on your device.</p>
+        <h2>1. Introduction</h2>
+        <p>PDF Toolkit ("we", "our", or "the app") is committed to protecting your privacy. This Privacy Policy explains
+            our data handling practices when you use our mobile application.</p>
 
-        <h3>Data Processing</h3>
+        <h2>2. Information We Collect</h2>
+        <p><strong>We do NOT collect any personal information or data.</strong></p>
+
+        <h3>What We DON'T Collect:</h3>
         <ul>
-            <li>All PDF files are processed locally on your device</li>
-            <li>No files are uploaded to our servers</li>
-            <li>No personal data is transmitted over the internet</li>
-            <li>No user accounts or registration required</li>
+            <li>Personal information (name, email, phone number, address)</li>
+            <li>Device identifiers or advertising IDs</li>
+            <li>Location data</li>
+            <li>Contact information</li>
+            <li>Usage analytics or statistics</li>
+            <li>Crash reports</li>
+            <li>Your PDF files or documents</li>
+            <li>Any other user data</li>
         </ul>
 
-        <h3>Device Permissions</h3>
-        <p>Our app requests the following permissions:</p>
+        <h2>3. How Your Files Are Processed</h2>
+        <p>All PDF and image processing happens <strong>entirely on your device</strong>:</p>
         <ul>
-            <li><strong>Storage Access</strong>: To read PDF files from your device and save processed documents</li>
-            <li><strong>Camera (Optional)</strong>: To scan documents and convert them to PDF format</li>
+            <li><strong>Local Processing:</strong> Files are processed using on-device libraries (PdfBox-Android, ML Kit
+                for OCR)</li>
+            <li><strong>No Cloud Upload:</strong> Your files are NEVER uploaded to any server or cloud service</li>
+            <li><strong>Temporary Storage:</strong> Temporary files are stored in your device's cache and automatically
+                cleaned up</li>
+            <li><strong>Output Location:</strong> Processed files are saved to your device's Downloads folder or custom
+                location you choose</li>
+            <li><strong>No Internet Required:</strong> The app works completely offline - no internet connection needed
+            </li>
         </ul>
 
-        <h2>How We Use Information</h2>
-        <p>Since we don't collect personal information, we don't use, share, or store any personal data. All document processing happens locally on your device.</p>
+        <h2>4. Permissions Required</h2>
+        <p>The app requests the following permissions for core functionality:</p>
 
-        <h2>Data Security</h2>
+        <h3>Storage Access (Required):</h3>
         <ul>
-            <li>All PDF processing occurs offline on your device</li>
-            <li>No data is transmitted to external servers</li>
+            <li><strong>Purpose:</strong> To read PDF/image files from your device and save processed files</li>
+            <li><strong>Usage:</strong> Only accessed when you explicitly select files or save output</li>
+            <li><strong>Data Sharing:</strong> None - files stay on your device</li>
+        </ul>
+
+        <h3>Camera (Optional):</h3>
+        <ul>
+            <li><strong>Purpose:</strong> For the "Scan to PDF" feature only</li>
+            <li><strong>Usage:</strong> Only when you use the scan feature</li>
+            <li><strong>Data Sharing:</strong> None - scanned images are processed locally</li>
+        </ul>
+
+        <h2>5. Data Storage</h2>
+        <p>The app stores minimal data locally on your device:</p>
+        <ul>
+            <li><strong>Recent Files List:</strong> URI references to files you've opened (for quick access in the Files
+                tab)</li>
+            <li><strong>App Settings:</strong> Your preferences (compression quality, default image format, etc.)</li>
+            <li><strong>Temporary Cache:</strong> Temporary files created during processing (automatically cleaned)</li>
+        </ul>
+        <p><strong>You can clear all this data at any time:</strong></p>
+        <ul>
+            <li>Clear recent files history: Files tab → Clear button</li>
+            <li>Clear cache: Settings → Storage → Clear Cache</li>
+            <li>Reset all data: Uninstall the app or clear app data in device settings</li>
+        </ul>
+
+        <h2>6. Third-Party Services</h2>
+        <p><strong>We do NOT use any third-party services:</strong></p>
+        <ul>
+            <li>No advertising networks (Google AdMob, Facebook Ads, etc.)</li>
+            <li>No analytics platforms (Google Analytics, Firebase Analytics, Mixpanel, etc.)</li>
+            <li>No crash reporting services (Crashlytics, Sentry, etc.)</li>
+            <li>No cloud storage services (Google Drive, Dropbox, etc.)</li>
+            <li>No social media integrations</li>
+            <li>No tracking pixels or cookies</li>
+        </ul>
+
+        <h3>Open Source Libraries Used:</h3>
+        <p>The app uses the following open-source libraries that run locally on your device:</p>
+        <ul>
+            <li><strong>PdfBox-Android:</strong> For PDF manipulation (Apache License 2.0)</li>
+            <li><strong>Google ML Kit:</strong> For OCR text recognition (runs on-device, Apache License 2.0)</li>
+            <li><strong>Jetpack Compose:</strong> For UI (Apache License 2.0)</li>
+        </ul>
+        <p>These libraries do not collect or transmit any data.</p>
+
+        <h2>7. Data Security</h2>
+        <ul>
+            <li>All processing occurs offline on your device</li>
+            <li>No data transmission to external servers</li>
             <li>Your documents remain private and secure on your device</li>
+            <li>App uses Android's scoped storage for secure file access</li>
         </ul>
 
-        <h2>Third-Party Services</h2>
-        <p>PDF Toolkit does not integrate with any third-party analytics, advertising, or data collection services.</p>
+        <h2>8. Children's Privacy</h2>
+        <p>PDF Toolkit does not collect any data from anyone, including children under 13 years of age. The app is safe
+            for users of all ages.</p>
 
-        <h2>Children's Privacy</h2>
-        <p>Our app does not collect personal information from anyone, including children under 13. The app is safe for users of all ages.</p>
+        <h2>9. Your Rights</h2>
+        <p>Since we don't collect any data, there's no data to access, modify, export, or delete. However, you have full
+            control over:</p>
+        <ul>
+            <li>Files you process (they're stored on your device)</li>
+            <li>App settings and preferences</li>
+            <li>Recent files history (can be cleared anytime)</li>
+            <li>App cache (can be cleared anytime)</li>
+        </ul>
 
-        <h2>Changes to This Policy</h2>
-        <p>We may update this Privacy Policy from time to time. We will notify users of any changes by posting the new Privacy Policy in the app and updating the "Last updated" date.</p>
+        <h2>10. Changes to This Privacy Policy</h2>
+        <p>We may update this Privacy Policy from time to time. Any changes will be posted on this page with an updated
+            "Last Updated" date. Continued use of the app after changes constitutes acceptance of the updated policy.
+        </p>
 
-        <h2>Contact Us</h2>
-        <p>If you have any questions about this Privacy Policy, please contact us through the Google Play Store listing.</p>
+        <h2>11. Contact Us</h2>
+        <p>If you have any questions or concerns about this Privacy Policy, please contact us:</p>
+        <ul>
+            <li><strong>Email:</strong> developerncn29@gmail.com</li>
+            <li><strong>GitHub:</strong> <a
+                    href="https://github.com/Ncn914491/Pdf_Tools">https://github.com/Ncn914491/Pdf_Tools</a></li>
+        </ul>
+
+        <h2>12. Legal Compliance</h2>
+        <p>This app complies with:</p>
+        <ul>
+            <li>GDPR (General Data Protection Regulation) - EU</li>
+            <li>CCPA (California Consumer Privacy Act) - USA</li>
+            <li>COPPA (Children's Online Privacy Protection Act) - USA</li>
+            <li>Google Play Store policies</li>
+        </ul>
+        <p>Since we don't collect any data, compliance is inherent in our design.</p>
 
         <div class="footer">
-            <p>&copy; 2025 PDF Toolkit. All rights reserved.</p>
+            <p>&copy; 2026 PDF Toolkit. All rights reserved.</p>
+            <p><a href="licenses.html">Open Source Licenses</a></p>
         </div>
     </div>
 </body>
+
 </html>

@@ -156,17 +156,32 @@ fun PdfViewerScreen(
                 isLoading = false
                 isPasswordError = false
                 showPasswordDialog = false
+            } catch (e: InvalidPasswordException) {
+                Log.w("PdfViewerScreen", "PDF requires password or incorrect password")
+                isLoading = false
+                isPasswordError = password.isNotEmpty()
+                showPasswordDialog = true
             } catch (e: Exception) {
                 Log.e("PdfViewerScreen", "Failed to load PDF: ${e.message}", e)
-                val userMessage = when {
-                    e.message?.contains("Permission Denial") == true ->
-                        "Permission denied. Please open the file again from the Files tab."
-                    e.message?.contains("SecurityException") == true ->
-                        "Access denied. The file permission may have expired."
-                    else -> "Failed to load PDF: ${e.localizedMessage}"
+                // Check if the exception message indicates password requirement
+                val isPasswordIssue = e.message?.contains("password", ignoreCase = true) == true ||
+                                     e.message?.contains("encrypted", ignoreCase = true) == true
+                
+                if (isPasswordIssue) {
+                    isLoading = false
+                    isPasswordError = password.isNotEmpty()
+                    showPasswordDialog = true
+                } else {
+                    val userMessage = when {
+                        e.message?.contains("Permission Denial") == true ->
+                            "Permission denied. Please open the file again from the Files tab."
+                        e.message?.contains("SecurityException") == true ->
+                            "Access denied. The file permission may have expired."
+                        else -> "Failed to load PDF: ${e.localizedMessage}"
+                    }
+                    errorMessage = userMessage
+                    isLoading = false
                 }
-                errorMessage = userMessage
-                isLoading = false
             }
         }
     }
@@ -1311,7 +1326,8 @@ private suspend fun loadPdfPages(
         val dpi = 150f
         val images = mutableListOf<Bitmap>()
         
-        for (i in 0 until totalPages.coerceAtMost(50)) {
+        // Load all pages (removed 50-page limit)
+        for (i in 0 until totalPages) {
             // PdfBox-Android renderImage takes scale factor, not DPI
             val bitmap = renderer.renderImage(i, dpi / 72f)
             images.add(bitmap)

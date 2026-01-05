@@ -52,9 +52,8 @@ fun AppNavigation(
     LaunchedEffect(initialPdfUri) {
         if (initialPdfUri != null) {
             // Navigate to PDF viewer when URI changes
-            val encodedUri = Uri.encode(initialPdfUri.toString())
-            val encodedName = Uri.encode(initialPdfName ?: "PDF Document")
-            navController.navigate("pdf_viewer/$encodedUri/$encodedName") {
+            // Use pdf_viewer_direct route which already has access to initialPdfUri/initialPdfName
+            navController.navigate("pdf_viewer_direct") {
                 // Pop up to Tools to avoid building up a large back stack
                 popUpTo(Screen.Tools.route) { inclusive = false }
             }

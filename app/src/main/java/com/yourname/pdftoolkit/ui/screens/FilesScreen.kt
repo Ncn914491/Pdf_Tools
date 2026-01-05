@@ -61,6 +61,7 @@ fun FilesScreen(
     var selectedFilter by remember { mutableStateOf(FileFilter.ALL) }
     var recentFiles by remember { mutableStateOf<List<PersistedFile>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
     
     // Supported MIME types for document picker (PDF only)
     val pdfMimeTypes = arrayOf("application/pdf")
@@ -198,14 +199,35 @@ fun FilesScreen(
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Recent Files Section
-        Text(
-            text = "Recent Files",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
+        // Recent Files Section Header with Clear Button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Recent Files",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            if (recentFiles.isNotEmpty()) {
+                TextButton(
+                    onClick = { showClearHistoryDialog = true }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteSweep,
+                        contentDescription = "Clear History",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Clear")
+                }
+            }
+        }
         
         Spacer(modifier = Modifier.height(8.dp))
         
@@ -282,6 +304,36 @@ fun FilesScreen(
                 }
             }
         }
+    }
+    
+    // Clear History Dialog
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+            title = { Text("Clear Recent Files?") },
+            text = {
+                Text("This will remove all files from your recent history. The actual files will not be deleted.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            SafUriManager.clearAllRecentFiles(context)
+                            recentFiles = emptyList()
+                            showClearHistoryDialog = false
+                        }
+                    }
+                ) {
+                    Text("Clear")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

@@ -21,31 +21,24 @@ object OutputFolderManager {
     
     /**
      * Get or create the app's output folder.
-     * Works on all Android versions.
+     * On Android 10+, files are saved to public Documents via MediaStore for visibility.
+     * On older versions, uses public Documents directory.
      */
     fun getOutputFolder(context: Context): File? {
         return try {
-            val documentsDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // On Android 10+, use app-specific external files directory
-                context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            } else {
-                // On older versions, use public Documents
-                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), APP_FOLDER_NAME)
-            }
+            // On all versions, use public Documents directory
+            // This ensures files are visible in file managers
+            @Suppress("DEPRECATION")
+            val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            val appFolder = File(documentsDir, APP_FOLDER_NAME)
             
-            val appFolder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                File(documentsDir, APP_FOLDER_NAME).also {
-                    if (!it.exists()) it.mkdirs()
-                }
-            } else {
-                documentsDir?.also {
-                    if (!it.exists()) it.mkdirs()
-                }
+            if (!appFolder.exists()) {
+                appFolder.mkdirs()
             }
             
             appFolder
         } catch (e: Exception) {
-            // Fallback to internal storage
+            // Fallback to internal storage only if public storage fails
             File(context.filesDir, APP_FOLDER_NAME).also {
                 if (!it.exists()) it.mkdirs()
             }
@@ -70,6 +63,9 @@ object OutputFolderManager {
             
             // Create the file
             file.createNewFile()
+            
+            // Notify MediaStore so file appears in file managers immediately
+            notifyMediaStore(context, file)
             
             // Get content URI via FileProvider
             val contentUri = FileProvider.getUriForFile(
@@ -245,6 +241,48 @@ object OutputFolderManager {
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
             bytes < 1024 * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
             else -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+        }
+    }
+    
+    /**
+     * Notify MediaStore about a new file so it appears in file managers.
+     * On Android 10+, we need to scan the file properly.
+     */
+    private fun notifyMediaStore(context: Context, file: File) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // On Android 10+, scan the file using MediaScannerConnection
+                // This is more reliable than trying to insert into MediaStore
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(file.absolutePath),
+                    arrayOf("application/pdf"),
+                    null
+                )
+                
+                // Also try to make the parent folder visible
+                val parentFolder = file.parentFile
+                if (parentFolder != null && parentFolder.exists()) {
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(parentFolder.absolutePath),
+                        null,
+                        null
+                    )
+                }
+            } else {
+                // On older versions, use MediaScannerConnection
+                @Suppress("DEPRECATION")
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(file.absolutePath),
+                    arrayOf("application/pdf"),
+                    null
+                )
+            }
+        } catch (e: Exception) {
+            // Silently fail - file is still created, just might not be immediately visible
+            android.util.Log.e("OutputFolderManager", "Failed to notify MediaStore", e)
         }
     }
 }

@@ -57,7 +57,7 @@ fun ImageToolsScreen(
     
     // State
     var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var selectedOperation by remember { mutableStateOf(ImageOperation.COMPRESS) }
+    var selectedOperation by remember { mutableStateOf(ImageOperation.RESIZE) }
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(0f) }
     var showResult by remember { mutableStateOf(false) }

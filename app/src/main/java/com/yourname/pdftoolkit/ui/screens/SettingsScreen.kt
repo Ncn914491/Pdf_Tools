@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.yourname.pdftoolkit.ui.components.LicensesDialog
 import com.yourname.pdftoolkit.util.CacheManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,6 +90,7 @@ fun SettingsScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showFeatureRequestDialog by remember { mutableStateOf(false) }
     var showImageFormatDialog by remember { mutableStateOf(false) }
+    var showLicensesDialog by remember { mutableStateOf(false) }
     
     // Settings state
     var compressionQuality by remember { mutableStateOf(SettingsPreferences.getCompressionQuality(context)) }
@@ -312,7 +314,7 @@ fun SettingsScreen(
                     subtitle = "View third-party licenses",
                     icon = Icons.Default.Description,
                     onClick = {
-                        Toast.makeText(context, "Licenses: PdfBox-Android (Apache 2.0), ML Kit (Apache 2.0)", Toast.LENGTH_LONG).show()
+                        showLicensesDialog = true
                     }
                 )
             }
@@ -353,7 +355,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "© 2024 PDF Toolkit",
+                        text = "© 2026 PDF Toolkit",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -365,6 +367,13 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(80.dp))
             }
         }
+    }
+    
+    // Licenses Dialog
+    if (showLicensesDialog) {
+        LicensesDialog(
+            onDismiss = { showLicensesDialog = false }
+        )
     }
     
     // Image Format Selection Dialog
@@ -713,38 +722,29 @@ private fun sendFeatureRequest(context: Context, featureText: String) {
         ---
         Device: ${Build.MANUFACTURER} ${Build.MODEL}
         Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})
-        App Version: 1.2.4 (9)
+        App Version: 1.2.6 (11)
     """.trimIndent()
     
     val emailBody = "$featureText\n$deviceInfo"
     
     try {
-        // Use ACTION_SEND which is more reliable across devices
+        // Restrict to Gmail only
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "message/rfc822"
+            setPackage("com.google.android.gm") // Gmail package
             putExtra(Intent.EXTRA_EMAIL, arrayOf(DEVELOPER_EMAIL))
             putExtra(Intent.EXTRA_SUBJECT, "[Feature Request] PDF Toolkit")
             putExtra(Intent.EXTRA_TEXT, emailBody)
         }
         
-        context.startActivity(Intent.createChooser(intent, "Send Feature Request"))
+        context.startActivity(intent)
     } catch (e: Exception) {
-        // Fallback: open email as mailto link
-        try {
-            val mailtoUri = Uri.parse(
-                "mailto:$DEVELOPER_EMAIL" +
-                "?subject=${Uri.encode("[Feature Request] PDF Toolkit")}" +
-                "&body=${Uri.encode(emailBody)}"
-            )
-            val mailIntent = Intent(Intent.ACTION_VIEW, mailtoUri)
-            context.startActivity(mailIntent)
-        } catch (ex: Exception) {
-            Toast.makeText(
-                context, 
-                "No email app found. Please send your feedback to $DEVELOPER_EMAIL", 
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        // Gmail not installed
+        Toast.makeText(
+            context, 
+            "Gmail app is required. Please install Gmail or send feedback to $DEVELOPER_EMAIL", 
+            Toast.LENGTH_LONG
+        ).show()
     }
 }
 
@@ -767,36 +767,27 @@ private fun sendBugReport(context: Context) {
         ---
         Device: ${Build.MANUFACTURER} ${Build.MODEL}
         Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})
-        App Version: 1.2.4 (9)
+        App Version: 1.2.6 (11)
     """.trimIndent()
     
     try {
-        // Use ACTION_SEND which is more reliable across devices
+        // Restrict to Gmail only
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "message/rfc822"
+            setPackage("com.google.android.gm") // Gmail package
             putExtra(Intent.EXTRA_EMAIL, arrayOf(DEVELOPER_EMAIL))
             putExtra(Intent.EXTRA_SUBJECT, "[Bug Report] PDF Toolkit")
             putExtra(Intent.EXTRA_TEXT, deviceInfo)
         }
         
-        context.startActivity(Intent.createChooser(intent, "Send Bug Report"))
+        context.startActivity(intent)
     } catch (e: Exception) {
-        // Fallback: open email as mailto link
-        try {
-            val mailtoUri = Uri.parse(
-                "mailto:$DEVELOPER_EMAIL" +
-                "?subject=${Uri.encode("[Bug Report] PDF Toolkit")}" +
-                "&body=${Uri.encode(deviceInfo)}"
-            )
-            val mailIntent = Intent(Intent.ACTION_VIEW, mailtoUri)
-            context.startActivity(mailIntent)
-        } catch (ex: Exception) {
-            Toast.makeText(
-                context, 
-                "No email app found. Please send your bug report to $DEVELOPER_EMAIL", 
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        // Gmail not installed
+        Toast.makeText(
+            context, 
+            "Gmail app is required. Please install Gmail or send bug reports to $DEVELOPER_EMAIL", 
+            Toast.LENGTH_LONG
+        ).show()
     }
 }
 

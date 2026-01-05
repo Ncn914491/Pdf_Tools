@@ -55,7 +55,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         // Handle intent if app is opened with a PDF
+        // This MUST happen before setContent so pendingPdfUri is set
         handleIntent(intent)
+        
+        Log.d(TAG, "onCreate: After handleIntent, pendingPdfUri=$pendingPdfUri, pendingPdfName=$pendingPdfName")
         
         setContent {
             PDFToolkitTheme {
@@ -65,13 +68,15 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     
-                    // Use mutableStateOf for reactive updates from onNewIntent
+                    // Initialize state with pending values (set by handleIntent)
                     val pdfUri = remember { mutableStateOf(pendingPdfUri) }
                     val pdfName = remember { mutableStateOf(pendingPdfName) }
                     
                     // Store references for onNewIntent updates
                     pdfUriState = pdfUri
                     pdfNameState = pdfName
+                    
+                    Log.d(TAG, "Composing AppNavigation with initialPdfUri=${pdfUri.value}, initialPdfName=${pdfName.value}")
                     
                     AppNavigation(
                         navController = navController,

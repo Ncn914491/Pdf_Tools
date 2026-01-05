@@ -263,7 +263,7 @@ fun OrganizeScreen(
                                     isRemoveMode = false
                                     selectedPages = setOf()
                                 },
-                                label = { Text("Keep Pages") },
+                                label = { Text("Extract/Reorder Pages") },
                                 leadingIcon = if (!isRemoveMode) {
                                     { Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp)) }
                                 } else null,
@@ -283,7 +283,7 @@ fun OrganizeScreen(
                                 text = if (isRemoveMode) {
                                     "Select pages to remove"
                                 } else {
-                                    "Select pages to keep"
+                                    "Select pages to extract (in order)"
                                 },
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
@@ -409,7 +409,7 @@ fun OrganizeScreen(
                             text = if (isRemoveMode) {
                                 "Remove ${selectedPages.size} Pages"
                             } else {
-                                "Keep ${selectedPages.size} Pages"
+                                "Extract ${selectedPages.size} Pages"
                             },
                             onClick = {
                                 if (useCustomLocation) {
