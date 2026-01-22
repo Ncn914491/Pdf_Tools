@@ -1,5 +1,6 @@
 package com.yourname.pdftoolkit.ui.screens
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +23,7 @@ import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.domain.operations.ImageConverter
 import com.yourname.pdftoolkit.domain.operations.PageSize
 import com.yourname.pdftoolkit.ui.components.*
+import com.yourname.pdftoolkit.util.CropHelper
 import com.yourname.pdftoolkit.util.FileOpener
 import com.yourname.pdftoolkit.util.OutputFolderManager
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +61,29 @@ fun ConvertScreen(
     var resultMessage by remember { mutableStateOf("") }
     var resultUri by remember { mutableStateOf<Uri?>(null) }
     var useCustomLocation by remember { mutableStateOf(false) }
+    
+    // Crop state - track which image index is being cropped
+    var cropImageIndex by remember { mutableStateOf(-1) }
+    
+    // Crop launcher - handles the result from uCrop activity
+    val cropLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val croppedUri = CropHelper.getResultUri(result.resultCode, result.data)
+            if (croppedUri != null && cropImageIndex >= 0 && cropImageIndex < selectedImages.size) {
+                // Replace the original image with the cropped one
+                val updatedImages = selectedImages.toMutableList()
+                val originalName = updatedImages[cropImageIndex].name
+                updatedImages[cropImageIndex] = ImageInfo(
+                    uri = croppedUri,
+                    name = "${originalName.substringBeforeLast(".")}_cropped.${originalName.substringAfterLast(".", "jpg")}"
+                )
+                selectedImages = updatedImages
+            }
+        }
+        cropImageIndex = -1
+    }
     
     // Image picker launcher
     val pickImagesLauncher = rememberLauncherForActivityResult(
@@ -241,6 +266,17 @@ fun ConvertScreen(
                                     selectedImages = selectedImages.toMutableList().apply {
                                         removeAt(index)
                                     }
+                                },
+                                onCrop = {
+                                    // Launch crop for this image
+                                    cropImageIndex = index
+                                    val cropIntent = CropHelper.getCropIntent(
+                                        context = context,
+                                        sourceUri = image.uri,
+                                        aspectRatio = null, // Free crop
+                                        maxSize = 2048
+                                    )
+                                    cropLauncher.launch(cropIntent)
                                 },
                                 onMoveUp = if (index > 0) {
                                     {
@@ -481,6 +517,7 @@ private fun ImageItemCard(
     index: Int,
     image: ImageInfo,
     onRemove: () -> Unit,
+    onCrop: (() -> Unit)? = null,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?
 ) {
@@ -542,6 +579,20 @@ private fun ImageItemCard(
                 maxLines = 1,
                 modifier = Modifier.weight(1f)
             )
+            
+            // Crop button
+            if (onCrop != null) {
+                IconButton(
+                    onClick = onCrop,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Crop,
+                        contentDescription = "Crop image",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             
             // Reorder buttons
             Column {

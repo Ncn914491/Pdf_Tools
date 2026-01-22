@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.pdftoolkit.data.FileManager
+import com.yourname.pdftoolkit.data.HistoryManager
+import com.yourname.pdftoolkit.data.OperationType
 import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.CompressionLevel
 import com.yourname.pdftoolkit.domain.operations.PdfCompressor
@@ -200,6 +202,26 @@ fun CompressScreen(
             resultSuccess = result.first
             resultMessage = result.second
             resultUri = result.third
+            
+            // Record in history
+            if (resultSuccess && result.third != null) {
+                HistoryManager.recordSuccess(
+                    context = context,
+                    operationType = OperationType.COMPRESS,
+                    inputFileName = originalFile.name,
+                    outputFileUri = result.third,
+                    outputFileName = "compressed_${originalFile.name}",
+                    details = "Compressed from ${originalFile.formattedSize}"
+                )
+            } else if (!resultSuccess) {
+                HistoryManager.recordFailure(
+                    context = context,
+                    operationType = OperationType.COMPRESS,
+                    inputFileName = originalFile.name,
+                    errorMessage = result.second
+                )
+            }
+            
             if (resultSuccess) {
                 selectedFile = null
             }

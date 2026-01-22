@@ -1323,16 +1323,60 @@ private suspend fun loadPdfPages(
         }
         inputStream.close()
         val totalPages = document.numberOfPages
+        
+        if (totalPages == 0) {
+            throw IOException("PDF has no pages")
+        }
+        
         val renderer = PDFRenderer(document)
         
         val dpi = 150f
         val images = mutableListOf<Bitmap>()
         
-        // Load all pages (removed 50-page limit)
+        // Load all pages with error handling for problematic pages
         for (i in 0 until totalPages) {
-            // PdfBox-Android renderImage takes scale factor, not DPI
-            val bitmap = renderer.renderImage(i, dpi / 72f)
-            images.add(bitmap)
+            try {
+                val page = document.getPage(i)
+                val mediaBox = page.mediaBox
+                
+                // Validate page dimensions
+                val pageWidth = mediaBox?.width ?: 0f
+                val pageHeight = mediaBox?.height ?: 0f
+                
+                if (pageWidth <= 0 || pageHeight <= 0) {
+                    Log.w("PdfViewerScreen", "Page $i has invalid dimensions: ${pageWidth}x${pageHeight}, using fallback")
+                    // Create a placeholder bitmap for invalid pages
+                    val placeholderBitmap = createPlaceholderBitmap(
+                        width = 612, // A4 width in points
+                        height = 792, // A4 height in points
+                        message = "Page ${i + 1}\nCould not render\n(Invalid dimensions)"
+                    )
+                    images.add(placeholderBitmap)
+                    continue
+                }
+                
+                // PdfBox-Android renderImage takes scale factor, not DPI
+                val bitmap = try {
+                    renderer.renderImage(i, dpi / 72f)
+                } catch (e: Exception) {
+                    Log.e("PdfViewerScreen", "Error rendering page $i: ${e.message}", e)
+                    // Create fallback for render errors
+                    createPlaceholderBitmap(
+                        width = pageWidth.toInt().coerceAtLeast(100),
+                        height = pageHeight.toInt().coerceAtLeast(100),
+                        message = "Page ${i + 1}\nRender error"
+                    )
+                }
+                images.add(bitmap)
+            } catch (e: Exception) {
+                Log.e("PdfViewerScreen", "Error processing page $i: ${e.message}", e)
+                // Add a placeholder for failed pages
+                images.add(createPlaceholderBitmap(612, 792, "Page ${i + 1}\nFailed to load"))
+            }
+        }
+        
+        if (images.isEmpty()) {
+            throw IOException("Failed to render any pages from the PDF")
         }
         
         Pair(totalPages, images)
@@ -1397,6 +1441,62 @@ private fun copyUriToCache(context: Context, uri: Uri): java.io.File? {
         Log.e("PdfViewerScreen", "Exception copying to cache: ${e.message}")
         null
     }
+}
+
+/**
+ * Create a placeholder bitmap for pages that cannot be rendered.
+ */
+private fun createPlaceholderBitmap(width: Int, height: Int, message: String): Bitmap {
+    val scaledWidth = (width * 2f).toInt().coerceAtLeast(200) // Scale up for readability
+    val scaledHeight = (height * 2f).toInt().coerceAtLeast(200)
+    
+    val bitmap = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    
+    // Draw light gray background
+    canvas.drawColor(android.graphics.Color.parseColor("#F0F0F0"))
+    
+    // Draw border
+    val borderPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.parseColor("#CCCCCC")
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    canvas.drawRect(2f, 2f, scaledWidth - 2f, scaledHeight - 2f, borderPaint)
+    
+    // Draw message
+    val textPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.parseColor("#666666")
+        textSize = 40f
+        textAlign = android.graphics.Paint.Align.CENTER
+        isAntiAlias = true
+    }
+    
+    val lines = message.split("\n")
+    val lineHeight = textPaint.textSize * 1.5f
+    val startY = (scaledHeight - (lines.size * lineHeight)) / 2 + textPaint.textSize
+    
+    lines.forEachIndexed { index, line ->
+        canvas.drawText(line, scaledWidth / 2f, startY + index * lineHeight, textPaint)
+    }
+    
+    // Draw warning icon (simple triangle)
+    val iconPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.parseColor("#FFA500")
+        style = android.graphics.Paint.Style.FILL
+        isAntiAlias = true
+    }
+    val iconY = startY - lineHeight * 2
+    val iconSize = 60f
+    val path = android.graphics.Path().apply {
+        moveTo(scaledWidth / 2f, iconY - iconSize)
+        lineTo(scaledWidth / 2f - iconSize / 2, iconY)
+        lineTo(scaledWidth / 2f + iconSize / 2, iconY)
+        close()
+    }
+    canvas.drawPath(path, iconPaint)
+    
+    return bitmap
 }
 
 /**

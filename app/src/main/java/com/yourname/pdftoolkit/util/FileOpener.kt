@@ -242,5 +242,36 @@ object FileOpener {
             else -> "dat"
         }
     }
+    
+    /**
+     * Open a file with the system's default app chooser.
+     * 
+     * @param context Android context
+     * @param uri URI of the file to open
+     * @return true if intent was launched successfully
+     */
+    fun openWithSystemPicker(context: Context, uri: Uri): Boolean {
+        return try {
+            // Determine MIME type from URI
+            val mimeType = context.contentResolver.getType(uri) ?: "*/*"
+            
+            val accessibleUri = getAccessibleUri(context, uri, getExtensionFromMimeType(mimeType))
+            
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(accessibleUri, mimeType)
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            
+            val chooser = Intent.createChooser(intent, "Open with...").apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            
+            context.startActivity(chooser)
+            true
+        } catch (e: Exception) {
+            Toast.makeText(context, "No app available to open this file", Toast.LENGTH_SHORT).show()
+            false
+        }
+    }
 }
 

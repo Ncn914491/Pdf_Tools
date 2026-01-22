@@ -291,7 +291,7 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = "Version",
-                    subtitle = "1.2.4 (Build 9)",
+                    subtitle = "1.2.8 (Build 13)",
                     icon = Icons.Default.Info,
                     onClick = { showAboutDialog = true }
                 )
@@ -502,14 +502,14 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Version", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("1.2.4")
+                        Text("1.2.8")
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Build", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("9")
+                        Text("13")
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -722,7 +722,7 @@ private fun sendFeatureRequest(context: Context, featureText: String) {
         ---
         Device: ${Build.MANUFACTURER} ${Build.MODEL}
         Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})
-        App Version: 1.2.6 (11)
+        App Version: 1.2.8 (13)
     """.trimIndent()
     
     val emailBody = "$featureText\n$deviceInfo"

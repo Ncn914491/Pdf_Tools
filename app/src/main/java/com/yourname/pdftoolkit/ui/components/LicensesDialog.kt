@@ -1,15 +1,22 @@
 package com.yourname.pdftoolkit.ui.components
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -150,6 +157,8 @@ private fun LibrarySection(
     license: String,
     url: String
 ) {
+    val context = LocalContext.current
+    
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -180,12 +189,37 @@ private fun LibrarySection(
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.secondary
             )
-            Text(
-                text = url,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.tertiary
-            )
+            
+            // Clickable URL
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // Handle error silently
+                        }
+                    }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.OpenInBrowser,
+                    contentDescription = "Open link",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.tertiary
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = url,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    textDecoration = TextDecoration.Underline
+                )
+            }
         }
     }
 }
@@ -230,6 +264,9 @@ private fun ApacheLicenseText() {
 
 @Composable
 private fun AboutSection() {
+    val context = LocalContext.current
+    val sourceCodeUrl = "https://github.com/Ncn914491/Pdf_Tools"
+    
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer
@@ -250,12 +287,38 @@ private fun AboutSection() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onTertiaryContainer
             )
-            Text(
-                text = "Source Code: https://github.com/Ncn914491/Pdf_Tools",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onTertiaryContainer
-            )
+            
+            // Clickable source code link
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(sourceCodeUrl))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // Handle error silently
+                        }
+                    }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.OpenInBrowser,
+                    contentDescription = "Open link",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Source Code: $sourceCodeUrl",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    textDecoration = TextDecoration.Underline
+                )
+            }
+            
             Text(
                 text = "We believe in open source software and are committed to giving back to the community.",
                 style = MaterialTheme.typography.bodySmall,

@@ -14,8 +14,8 @@ android {
         applicationId = "com.yourname.pdftoolkit"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.2.6"
+        versionCode = 13
+        versionName = "1.2.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -105,6 +105,17 @@ android {
         }
         abi {
             enableSplit = true
+        }
+    }
+    
+    // Custom AAB naming with app name and version
+    applicationVariants.all {
+        val variant = this
+        variant.outputs.all {
+            val outputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            if (variant.buildType.name == "release") {
+                outputImpl.outputFileName = "PDFToolkit-v${variant.versionName}-${variant.buildType.name}.apk"
+            }
         }
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -28,6 +30,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import com.yourname.pdftoolkit.ui.components.HistorySidebar
 import com.yourname.pdftoolkit.ui.screens.*
 
 /**
@@ -76,11 +79,23 @@ fun AppNavigation(
         Screen.Files.route
     )
     
+    // History sidebar state
+    var isHistorySidebarOpen by remember { mutableStateOf(false) }
+    
+    Box(modifier = modifier.fillMaxSize()) {
     Scaffold(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             if (showTopBar) {
                 TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { isHistorySidebarOpen = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "Open History"
+                            )
+                        }
+                    },
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically
@@ -326,6 +341,19 @@ fun AppNavigation(
             }
         }
     }
+    
+    // History Sidebar overlay
+    HistorySidebar(
+        isOpen = isHistorySidebarOpen,
+        onClose = { isHistorySidebarOpen = false },
+        onOpenFile = { uri ->
+            isHistorySidebarOpen = false
+            // Navigate to PDF viewer with the file
+            val encodedUri = Uri.encode(uri.toString())
+            navController.navigate(Screen.PdfViewer.createRoute(encodedUri, "PDF Document"))
+        }
+    )
+    } // End Box
 }
 
 /**

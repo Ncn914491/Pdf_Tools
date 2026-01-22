@@ -1,6 +1,7 @@
 package com.yourname.pdftoolkit.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +15,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -40,6 +42,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
 import com.yourname.pdftoolkit.domain.operations.*
+import com.yourname.pdftoolkit.util.CropHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,6 +92,14 @@ class ScanToPdfViewModel : ViewModel() {
     
     fun setShowCamera(show: Boolean) {
         _state.value = _state.value.copy(showCamera = show)
+    }
+    
+    fun replaceImage(index: Int, newUri: Uri) {
+        val updatedImages = _state.value.selectedImages.toMutableList()
+        if (index in updatedImages.indices) {
+            updatedImages[index] = newUri
+            _state.value = _state.value.copy(selectedImages = updatedImages)
+        }
     }
     
     fun createPdf(
@@ -183,6 +194,22 @@ fun ScanToPdfScreen(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
         uri?.let { viewModel.createPdf(context, it) }
+    }
+    
+    // Crop state
+    var cropImageIndex by remember { mutableStateOf(-1) }
+    
+    // Crop launcher
+    val cropLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val croppedUri = CropHelper.getResultUri(result.resultCode, result.data)
+            if (croppedUri != null && cropImageIndex >= 0 && cropImageIndex < state.selectedImages.size) {
+                viewModel.replaceImage(cropImageIndex, croppedUri)
+            }
+        }
+        cropImageIndex = -1
     }
     
     if (state.showCamera && hasCameraPermission) {
@@ -297,6 +324,17 @@ fun ScanToPdfScreen(
                                         modifier = Modifier
                                             .size(100.dp)
                                             .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                // Tap to crop
+                                                cropImageIndex = index
+                                                val cropIntent = CropHelper.getCropIntent(
+                                                    context = context,
+                                                    sourceUri = state.selectedImages[index],
+                                                    aspectRatio = null,
+                                                    maxSize = 2048
+                                                )
+                                                cropLauncher.launch(cropIntent)
+                                            }
                                     ) {
                                         Image(
                                             painter = rememberAsyncImagePainter(state.selectedImages[index]),
@@ -312,6 +350,34 @@ fun ScanToPdfScreen(
                                                 .padding(4.dp)
                                         ) {
                                             Text("${index + 1}")
+                                        }
+                                        
+                                        // Crop button
+                                        IconButton(
+                                            onClick = {
+                                                cropImageIndex = index
+                                                val cropIntent = CropHelper.getCropIntent(
+                                                    context = context,
+                                                    sourceUri = state.selectedImages[index],
+                                                    aspectRatio = null,
+                                                    maxSize = 2048
+                                                )
+                                                cropLauncher.launch(cropIntent)
+                                            },
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .size(24.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.primary,
+                                                    CircleShape
+                                                )
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Crop,
+                                                contentDescription = "Crop",
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
                                         }
                                         
                                         // Delete button
