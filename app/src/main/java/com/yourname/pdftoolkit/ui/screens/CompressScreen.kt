@@ -36,7 +36,9 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompressScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    initialUri: Uri? = null,
+    initialName: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -52,6 +54,13 @@ fun CompressScreen(
     var resultMessage by remember { mutableStateOf("") }
     var resultUri by remember { mutableStateOf<Uri?>(null) }
     var useCustomLocation by remember { mutableStateOf(false) }
+    
+    // Auto-load initial file if provided
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedFile == null) {
+            selectedFile = FileManager.getFileInfo(context, initialUri)
+        }
+    }
     
     // File picker launcher
     val pickPdfLauncher = rememberLauncherForActivityResult(

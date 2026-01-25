@@ -192,10 +192,24 @@ data class WatermarkUiState(
 @Composable
 fun WatermarkScreen(
     onNavigateBack: () -> Unit,
+    initialUri: Uri? = null,
+    initialName: String? = null,
     viewModel: WatermarkViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
+    
+    // Auto-load initial file if provided
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && state.sourceUri == null) {
+            val name = initialName ?: context.contentResolver.query(initialUri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                cursor.moveToFirst()
+                cursor.getString(nameIndex)
+            } ?: "Selected PDF"
+            viewModel.setSourcePdf(initialUri, name)
+        }
+    }
     
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()

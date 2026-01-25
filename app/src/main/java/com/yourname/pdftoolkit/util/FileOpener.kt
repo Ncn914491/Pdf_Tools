@@ -40,28 +40,9 @@ object FileOpener {
                 flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
             }
             
-            // Create chooser that EXCLUDES our own app to prevent circular intent
+            // Create chooser - include our own app so user can view in PDF Toolkit
             val chooser = Intent.createChooser(intent, "Open PDF with...")
             chooser.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            
-            // Exclude our own app (both debug and release variants)
-            val excludedPackages = arrayOf(
-                context.packageName,
-                context.packageName.replace(".debug", "")
-            )
-            
-            // Get all activities that can handle this intent EXCEPT ours
-            val packageManager = context.packageManager
-            val resolveInfoList = packageManager.queryIntentActivities(intent, 0)
-            
-            val excludedComponents = resolveInfoList
-                .filter { it.activityInfo.packageName in excludedPackages }
-                .map { android.content.ComponentName(it.activityInfo.packageName, it.activityInfo.name) }
-                .toTypedArray()
-            
-            if (excludedComponents.isNotEmpty()) {
-                chooser.putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, excludedComponents)
-            }
             
             context.startActivity(chooser)
             true

@@ -55,6 +55,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import com.yourname.pdftoolkit.data.SafUriManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 
 /**
  * Annotation tools available in the PDF viewer.
@@ -87,7 +92,7 @@ fun PdfViewerScreen(
     pdfUri: Uri?,
     pdfName: String = "PDF Document",
     onNavigateBack: () -> Unit,
-    onNavigateToTool: ((String) -> Unit)? = null
+    onNavigateToTool: ((String, Uri?, String?) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -115,6 +120,7 @@ fun PdfViewerScreen(
     var selectedColor by remember { mutableStateOf(Color.Yellow.copy(alpha = 0.5f)) }
     var annotations by remember { mutableStateOf<List<AnnotationStroke>>(emptyList()) }
     var currentStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var currentDrawingPageIndex by remember { mutableIntStateOf(-1) }
     var showColorPicker by remember { mutableStateOf(false) }
     
     // Search state
@@ -123,6 +129,45 @@ fun PdfViewerScreen(
     var extractedText by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
     var searchResults by remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) } // (pageIndex, position)
     var currentSearchResultIndex by remember { mutableIntStateOf(0) }
+    
+    // Save state
+    var isSaving by remember { mutableStateOf(false) }
+    var saveSuccess by remember { mutableStateOf<Boolean?>(null) }
+    
+    // Save document launcher
+    val saveDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        uri?.let { outputUri ->
+            if (pdfUri != null && annotations.isNotEmpty()) {
+                scope.launch {
+                    isSaving = true
+                    saveSuccess = null
+                    try {
+                        val success = saveAnnotatedPdf(
+                            context = context,
+                            originalPdfUri = pdfUri,
+                            outputUri = outputUri,
+                            pageImages = pageImages,
+                            annotations = annotations
+                        )
+                        saveSuccess = success
+                        if (success) {
+                            Toast.makeText(context, "Annotations saved successfully!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Failed to save annotations", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("PdfViewerScreen", "Error saving annotations: ${e.message}", e)
+                        saveSuccess = false
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        isSaving = false
+                    }
+                }
+            }
+        }
+    }
     
     val listState = rememberLazyListState()
     
@@ -340,6 +385,29 @@ fun PdfViewerScreen(
                                 Icon(Icons.Default.Search, contentDescription = "Search")
                             }
                             
+                            // Save annotations button (only in edit mode with annotations)
+                            if (isEditMode && annotations.isNotEmpty()) {
+                                if (isSaving) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    IconButton(
+                                        onClick = {
+                                            val fileName = "annotated_${pdfName}_${System.currentTimeMillis()}.pdf"
+                                            saveDocumentLauncher.launch(fileName)
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Save,
+                                            contentDescription = "Save Annotations",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                            
                             // Edit/Annotate toggle
                             IconButton(
                                 onClick = { 
@@ -410,6 +478,8 @@ fun PdfViewerScreen(
                                 onClick = {
                                     showMenu = false
                                     scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
                                 }
                             )
                             if (annotations.isNotEmpty()) {
@@ -430,7 +500,7 @@ fun PdfViewerScreen(
                                 leadingIcon = { Icon(Icons.Default.Compress, null) },
                                 onClick = {
                                     showMenu = false
-                                    onNavigateToTool?.invoke("compress")
+                                    onNavigateToTool?.invoke("compress", pdfUri, pdfName)
                                 }
                             )
                             DropdownMenuItem(
@@ -438,7 +508,7 @@ fun PdfViewerScreen(
                                 leadingIcon = { Icon(Icons.Default.WaterDrop, null) },
                                 onClick = {
                                     showMenu = false
-                                    onNavigateToTool?.invoke("watermark")
+                                    onNavigateToTool?.invoke("watermark", pdfUri, pdfName)
                                 }
                             )
                         }
@@ -573,6 +643,12 @@ fun PdfViewerScreen(
                         pageImages = pageImages,
                         scale = scale,
                         onScaleChange = { scale = it },
+                        offsetX = offsetX,
+                        offsetY = offsetY,
+                        onOffsetChange = { x, y ->
+                            offsetX = x
+                            offsetY = y
+                        },
                         listState = listState,
                         isEditMode = isEditMode,
                         selectedTool = selectedTool,
@@ -584,6 +660,8 @@ fun PdfViewerScreen(
                             annotations = annotations + stroke
                             currentStroke = emptyList()
                         },
+                        currentDrawingPageIndex = currentDrawingPageIndex,
+                        onDrawingPageIndexChange = { currentDrawingPageIndex = it },
                         // Pass search params
                         isSearchMode = isSearchMode,
                         searchQuery = searchQuery,
@@ -902,6 +980,9 @@ private fun PdfPagesContent(
     pageImages: List<Bitmap>,
     scale: Float,
     onScaleChange: (Float) -> Unit,
+    offsetX: Float,
+    offsetY: Float,
+    onOffsetChange: (Float, Float) -> Unit,
     listState: LazyListState,
     isEditMode: Boolean,
     selectedTool: AnnotationTool,
@@ -910,6 +991,8 @@ private fun PdfPagesContent(
     currentStroke: List<Offset>,
     onCurrentStrokeChange: (List<Offset>) -> Unit,
     onAddAnnotation: (AnnotationStroke) -> Unit,
+    currentDrawingPageIndex: Int,
+    onDrawingPageIndexChange: (Int) -> Unit,
     // Search params
     isSearchMode: Boolean = false,
     searchQuery: String = "",
@@ -917,15 +1000,38 @@ private fun PdfPagesContent(
     currentSearchResultIndex: Int = 0,
     pdfUri: Uri? = null
 ) {
+    // Track container size for pan boundary calculation
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    
     LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { containerSize = it }
             .then(
                 if (!isEditMode) {
-                    Modifier.pointerInput(Unit) {
-                        detectTransformGestures { _, _, zoom, _ ->
+                    Modifier.pointerInput(scale) {
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            // Calculate new scale
                             val newScale = (scale * zoom).coerceIn(0.5f, 3f)
+                            
+                            // Calculate new offset with pan
+                            // When zoomed in, allow panning; when at 1x, reset offset
+                            if (newScale > 1f) {
+                                // Calculate max offset based on scale
+                                val maxOffsetX = (containerSize.width * (newScale - 1f)) / 2f
+                                val maxOffsetY = (containerSize.height * (newScale - 1f)) / 2f
+                                
+                                // Apply pan with boundary checks
+                                val newOffsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                val newOffsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                
+                                onOffsetChange(newOffsetX, newOffsetY)
+                            } else {
+                                // Reset offset when scale is 1 or less
+                                onOffsetChange(0f, 0f)
+                            }
+                            
                             onScaleChange(newScale)
                         }
                     }
@@ -948,12 +1054,17 @@ private fun PdfPagesContent(
                 bitmap = pageImages[index],
                 pageIndex = index,
                 scale = scale,
+                offsetX = offsetX,
+                offsetY = offsetY,
                 isEditMode = isEditMode,
                 selectedTool = selectedTool,
                 selectedColor = selectedColor,
                 annotations = annotations.filter { it.pageIndex == index },
-                currentStroke = if (listState.firstVisibleItemIndex == index) currentStroke else emptyList(),
-                onCurrentStrokeChange = onCurrentStrokeChange,
+                currentStroke = if (currentDrawingPageIndex == index) currentStroke else emptyList(),
+                onCurrentStrokeChange = { stroke ->
+                    onDrawingPageIndexChange(index)
+                    onCurrentStrokeChange(stroke)
+                },
                 onAddAnnotation = onAddAnnotation,
                 // Search params
                 isSearchMode = isSearchMode,
@@ -977,6 +1088,8 @@ private fun PdfPageWithAnnotations(
     bitmap: Bitmap,
     pageIndex: Int,
     scale: Float,
+    offsetX: Float,
+    offsetY: Float,
     isEditMode: Boolean,
     selectedTool: AnnotationTool,
     selectedColor: Color,
@@ -1014,6 +1127,8 @@ private fun PdfPageWithAnnotations(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                translationX = offsetX
+                translationY = offsetY
             },
         shape = MaterialTheme.shapes.small,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -1223,6 +1338,101 @@ private fun sharePdf(context: Context, pdfUri: Uri) {
     }
 }
 
+/**
+ * Save the PDF with annotations burned into the pages.
+ * Creates a new PDF where each page is a rendered image with annotations overlaid.
+ */
+private suspend fun saveAnnotatedPdf(
+    context: Context,
+    originalPdfUri: Uri,
+    outputUri: Uri,
+    pageImages: List<Bitmap>,
+    annotations: List<AnnotationStroke>
+): Boolean = withContext(Dispatchers.IO) {
+    try {
+        if (!PDFBoxResourceLoader.isReady()) {
+            PDFBoxResourceLoader.init(context.applicationContext)
+        }
+        
+        val outputStream = context.contentResolver.openOutputStream(outputUri)
+            ?: throw IOException("Could not open output stream")
+        
+        // Create new PDF document
+        val document = PDDocument()
+        
+        try {
+            for (pageIndex in pageImages.indices) {
+                val originalBitmap = pageImages[pageIndex]
+                val pageAnnotations = annotations.filter { it.pageIndex == pageIndex }
+                
+                // Create a mutable copy of the bitmap to draw annotations on
+                val annotatedBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val canvas = android.graphics.Canvas(annotatedBitmap)
+                
+                // Draw annotations on the bitmap
+                for (annotation in pageAnnotations) {
+                    if (annotation.points.size >= 2) {
+                        val paint = android.graphics.Paint().apply {
+                            color = android.graphics.Color.argb(
+                                (annotation.color.alpha * 255).toInt(),
+                                (annotation.color.red * 255).toInt(),
+                                (annotation.color.green * 255).toInt(),
+                                (annotation.color.blue * 255).toInt()
+                            )
+                            strokeWidth = annotation.strokeWidth
+                            style = android.graphics.Paint.Style.STROKE
+                            strokeCap = android.graphics.Paint.Cap.ROUND
+                            strokeJoin = android.graphics.Paint.Join.ROUND
+                            isAntiAlias = true
+                        }
+                        
+                        val path = android.graphics.Path()
+                        path.moveTo(annotation.points[0].x, annotation.points[0].y)
+                        for (i in 1 until annotation.points.size) {
+                            path.lineTo(annotation.points[i].x, annotation.points[i].y)
+                        }
+                        canvas.drawPath(path, paint)
+                    }
+                }
+                
+                // Create PDF page with the annotated bitmap
+                val width = annotatedBitmap.width.toFloat()
+                val height = annotatedBitmap.height.toFloat()
+                
+                // Scale to reasonable PDF page size (72 DPI equivalent)
+                val scaleFactor = 72f / 150f // Original render was at 150 DPI
+                val pageWidth = width * scaleFactor
+                val pageHeight = height * scaleFactor
+                
+                val page = PDPage(com.tom_roush.pdfbox.pdmodel.common.PDRectangle(pageWidth, pageHeight))
+                document.addPage(page)
+                
+                // Create image from bitmap
+                val pdImage = LosslessFactory.createFromImage(document, annotatedBitmap)
+                
+                // Draw image on page
+                PDPageContentStream(document, page).use { contentStream ->
+                    contentStream.drawImage(pdImage, 0f, 0f, pageWidth, pageHeight)
+                }
+                
+                // Recycle the annotated bitmap (not the original!)
+                annotatedBitmap.recycle()
+            }
+            
+            // Save the document
+            document.save(outputStream)
+            
+            true
+        } finally {
+            document.close()
+            outputStream.close()
+        }
+    } catch (e: Exception) {
+        Log.e("PdfViewerScreen", "Error saving annotated PDF: ${e.message}", e)
+        false
+    }
+}
+
 private fun openWithExternalApp(context: Context, pdfUri: Uri) {
     try {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -1330,43 +1540,84 @@ private suspend fun loadPdfPages(
         
         val renderer = PDFRenderer(document)
         
-        val dpi = 150f
+        val baseDpi = 150f
         val images = mutableListOf<Bitmap>()
         
-        // Load all pages with error handling for problematic pages
+        // Load all pages with enhanced error handling for compressed/problematic PDFs
         for (i in 0 until totalPages) {
             try {
                 val page = document.getPage(i)
+                
+                // Try MediaBox first, then CropBox as fallback (some compressed PDFs only have CropBox)
                 val mediaBox = page.mediaBox
+                val cropBox = page.cropBox
                 
-                // Validate page dimensions
-                val pageWidth = mediaBox?.width ?: 0f
-                val pageHeight = mediaBox?.height ?: 0f
+                // Get effective dimensions - try multiple boxes
+                var pageWidth = mediaBox?.width ?: 0f
+                var pageHeight = mediaBox?.height ?: 0f
                 
+                // If MediaBox is invalid, try CropBox
                 if (pageWidth <= 0 || pageHeight <= 0) {
-                    Log.w("PdfViewerScreen", "Page $i has invalid dimensions: ${pageWidth}x${pageHeight}, using fallback")
-                    // Create a placeholder bitmap for invalid pages
-                    val placeholderBitmap = createPlaceholderBitmap(
-                        width = 612, // A4 width in points
-                        height = 792, // A4 height in points
-                        message = "Page ${i + 1}\nCould not render\n(Invalid dimensions)"
-                    )
-                    images.add(placeholderBitmap)
-                    continue
+                    pageWidth = cropBox?.width ?: 0f
+                    pageHeight = cropBox?.height ?: 0f
+                    Log.d("PdfViewerScreen", "Page $i: MediaBox invalid, using CropBox: ${pageWidth}x${pageHeight}")
                 }
                 
-                // PdfBox-Android renderImage takes scale factor, not DPI
-                val bitmap = try {
-                    renderer.renderImage(i, dpi / 72f)
-                } catch (e: Exception) {
-                    Log.e("PdfViewerScreen", "Error rendering page $i: ${e.message}", e)
-                    // Create fallback for render errors
-                    createPlaceholderBitmap(
-                        width = pageWidth.toInt().coerceAtLeast(100),
-                        height = pageHeight.toInt().coerceAtLeast(100),
-                        message = "Page ${i + 1}\nRender error"
+                // If still invalid, try BleedBox or TrimBox
+                if (pageWidth <= 0 || pageHeight <= 0) {
+                    val bleedBox = page.bleedBox
+                    val trimBox = page.trimBox
+                    pageWidth = bleedBox?.width ?: trimBox?.width ?: 0f
+                    pageHeight = bleedBox?.height ?: trimBox?.height ?: 0f
+                    Log.d("PdfViewerScreen", "Page $i: Using BleedBox/TrimBox: ${pageWidth}x${pageHeight}")
+                }
+                
+                // Last resort: use standard A4 dimensions
+                if (pageWidth <= 0 || pageHeight <= 0) {
+                    Log.w("PdfViewerScreen", "Page $i has no valid box dimensions, using A4 default")
+                    pageWidth = 612f // A4 width
+                    pageHeight = 792f // A4 height
+                }
+                
+                // Ensure dimensions are reasonable (some corrupt PDFs have huge values)
+                pageWidth = pageWidth.coerceIn(10f, 10000f)
+                pageHeight = pageHeight.coerceIn(10f, 10000f)
+                
+                // Try rendering with progressively lower quality on failure
+                var bitmap: Bitmap? = null
+                val scalesToTry = listOf(baseDpi / 72f, 1.5f, 1.0f, 0.75f)
+                
+                for (scale in scalesToTry) {
+                    try {
+                        bitmap = renderer.renderImage(i, scale)
+                        // Validate the bitmap is usable
+                        if (bitmap != null && bitmap.width > 0 && bitmap.height > 0) {
+                            break
+                        }
+                    } catch (e: IllegalArgumentException) {
+                        // "width and height must be > 0" error - try lower scale
+                        Log.w("PdfViewerScreen", "Page $i render failed at scale $scale: ${e.message}")
+                        bitmap = null
+                    } catch (e: OutOfMemoryError) {
+                        Log.w("PdfViewerScreen", "Page $i OOM at scale $scale, trying lower")
+                        bitmap = null
+                        System.gc() // Request garbage collection
+                    } catch (e: Exception) {
+                        Log.w("PdfViewerScreen", "Page $i render error at scale $scale: ${e.message}")
+                        bitmap = null
+                    }
+                }
+                
+                // If all render attempts failed, create a placeholder
+                if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0) {
+                    Log.e("PdfViewerScreen", "All render attempts failed for page $i, creating placeholder")
+                    bitmap = createPlaceholderBitmap(
+                        width = pageWidth.toInt().coerceAtLeast(200),
+                        height = pageHeight.toInt().coerceAtLeast(200),
+                        message = "Page ${i + 1}\nRender failed\nTry opening with another app"
                     )
                 }
+                
                 images.add(bitmap)
             } catch (e: Exception) {
                 Log.e("PdfViewerScreen", "Error processing page $i: ${e.message}", e)

@@ -265,7 +265,7 @@ private fun ApacheLicenseText() {
 @Composable
 private fun AboutSection() {
     val context = LocalContext.current
-    val sourceCodeUrl = "https://github.com/Ncn914491/Pdf_Tools"
+    val sourceCodeUrl = "https://github.com/Karna14314/Pdf_Tools"
     
     Card(
         colors = CardDefaults.cardColors(

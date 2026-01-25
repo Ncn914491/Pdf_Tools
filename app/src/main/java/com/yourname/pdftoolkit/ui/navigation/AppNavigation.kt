@@ -217,10 +217,12 @@ fun AppNavigation(
                     pdfUri = uri,
                     pdfName = Uri.decode(name),
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToTool = { tool ->
+                    onNavigateToTool = { tool, toolUri, toolName ->
+                        val encodedUri = toolUri?.let { Uri.encode(it.toString()) } ?: ""
+                        val encodedName = Uri.encode(toolName ?: "PDF Document")
                         when (tool) {
-                            "compress" -> navController.navigate(Screen.Compress.route)
-                            "watermark" -> navController.navigate(Screen.Watermark.route)
+                            "compress" -> navController.navigate("compress?uri=$encodedUri&name=$encodedName")
+                            "watermark" -> navController.navigate("watermark?uri=$encodedUri&name=$encodedName")
                             else -> {}
                         }
                     }
@@ -237,10 +239,12 @@ fun AppNavigation(
                             popUpTo("pdf_viewer_direct") { inclusive = true }
                         }
                     },
-                    onNavigateToTool = { tool ->
+                    onNavigateToTool = { tool, toolUri, toolName ->
+                        val encodedUri = toolUri?.let { Uri.encode(it.toString()) } ?: ""
+                        val encodedName = Uri.encode(toolName ?: "PDF Document")
                         when (tool) {
-                            "compress" -> navController.navigate(Screen.Compress.route)
-                            "watermark" -> navController.navigate(Screen.Watermark.route)
+                            "compress" -> navController.navigate("compress?uri=$encodedUri&name=$encodedName")
+                            "watermark" -> navController.navigate("watermark?uri=$encodedUri&name=$encodedName")
                             else -> {}
                         }
                     }
@@ -256,8 +260,28 @@ fun AppNavigation(
                 SplitScreen(onNavigateBack = { navController.popBackStack() })
             }
             
-            composable(Screen.Compress.route) {
-                CompressScreen(onNavigateBack = { navController.popBackStack() })
+            composable(
+                route = "compress?uri={uri}&name={name}",
+                arguments = listOf(
+                    navArgument("uri") { 
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                    navArgument("name") { 
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { backStackEntry ->
+                val uriString = backStackEntry.arguments?.getString("uri") ?: ""
+                val name = backStackEntry.arguments?.getString("name") ?: ""
+                val uri = if (uriString.isNotEmpty()) Uri.parse(uriString) else null
+                
+                CompressScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    initialUri = uri,
+                    initialName = if (name.isNotEmpty()) Uri.decode(name) else null
+                )
             }
             
             composable(Screen.Convert.route) {
@@ -312,8 +336,28 @@ fun AppNavigation(
                 ExtractTextScreen(onNavigateBack = { navController.popBackStack() })
             }
             
-            composable(Screen.Watermark.route) {
-                WatermarkScreen(onNavigateBack = { navController.popBackStack() })
+            composable(
+                route = "watermark?uri={uri}&name={name}",
+                arguments = listOf(
+                    navArgument("uri") { 
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                    navArgument("name") { 
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { backStackEntry ->
+                val uriString = backStackEntry.arguments?.getString("uri") ?: ""
+                val name = backStackEntry.arguments?.getString("name") ?: ""
+                val uri = if (uriString.isNotEmpty()) Uri.parse(uriString) else null
+                
+                WatermarkScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    initialUri = uri,
+                    initialName = if (name.isNotEmpty()) Uri.decode(name) else null
+                )
             }
             
             composable(Screen.Flatten.route) {

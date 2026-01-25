@@ -804,6 +804,6 @@ private fun openPlayStore(context: Context) {
 }
 
 private fun openPrivacyPolicy(context: Context) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ncn914491.github.io/Pdf_Tools/"))
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://karna14314.github.io/Pdf_Tools/"))
     context.startActivity(intent)
 }
