@@ -6,6 +6,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.content.edit
+import com.yourname.pdftoolkit.data.local.AppDatabase
+import com.yourname.pdftoolkit.data.local.RecentFileEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -78,6 +80,7 @@ object SafUriManager {
     private const val TAG = "SafUriManager"
     private const val PREFS_NAME = "saf_uri_manager"
     private const val KEY_PERSISTED_FILES = "persisted_files"
+    private const val KEY_MIGRATED_TO_ROOM = "migrated_to_room"
     private const val MAX_RECENT_FILES = 50
     
     /**
@@ -171,6 +174,37 @@ object SafUriManager {
         }
     }
     
+    private fun getDao(context: Context) = AppDatabase.getDatabase(context).recentFilesDao()
+
+    private suspend fun migrateIfNeeded(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_MIGRATED_TO_ROOM, false)) return
+
+        val existingJson = prefs.getString(KEY_PERSISTED_FILES, "[]") ?: "[]"
+        try {
+            val filesArray = JSONArray(existingJson)
+            val filesToMigrate = mutableListOf<RecentFileEntity>()
+
+            for (i in 0 until filesArray.length()) {
+                val fileJson = filesArray.optJSONObject(i) ?: continue
+                val persistedFile = PersistedFile.fromJson(fileJson) ?: continue
+                filesToMigrate.add(RecentFileEntity.fromPersistedFile(persistedFile))
+            }
+
+            if (filesToMigrate.isNotEmpty()) {
+                getDao(context).insertAll(filesToMigrate)
+            }
+
+            prefs.edit {
+                putBoolean(KEY_MIGRATED_TO_ROOM, true)
+                remove(KEY_PERSISTED_FILES) // Clean up old data
+            }
+            Log.d(TAG, "Migrated ${filesToMigrate.size} files to Room")
+        } catch (e: Exception) {
+            Log.e(TAG, "Migration failed: ${e.message}")
+        }
+    }
+
     /**
      * Add a file to the recent files list with proper SAF permission handling.
      * 
@@ -185,6 +219,8 @@ object SafUriManager {
         intentFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
     ): PersistedFile? = withContext(Dispatchers.IO) {
         try {
+            migrateIfNeeded(context)
+
             // Take persistable permission first
             takePersistablePermission(context, uri, intentFlags)
             
@@ -201,7 +237,9 @@ object SafUriManager {
             )
             
             // Save to storage
-            savePersistedFile(context, persistedFile)
+            val dao = getDao(context)
+            dao.insert(RecentFileEntity.fromPersistedFile(persistedFile))
+            dao.prune(MAX_RECENT_FILES)
             
             persistedFile
         } catch (e: Exception) {
@@ -242,40 +280,6 @@ object SafUriManager {
     }
     
     /**
-     * Save a persisted file entry to SharedPreferences.
-     */
-    private fun savePersistedFile(context: Context, file: PersistedFile) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val existingJson = prefs.getString(KEY_PERSISTED_FILES, "[]") ?: "[]"
-        
-        val filesArray = try {
-            JSONArray(existingJson)
-        } catch (e: Exception) {
-            JSONArray()
-        }
-        
-        // Remove duplicate if exists (same URI)
-        val filteredArray = JSONArray()
-        for (i in 0 until filesArray.length()) {
-            val existing = filesArray.optJSONObject(i)
-            if (existing?.optString("uriString") != file.uriString) {
-                filteredArray.put(existing)
-            }
-        }
-        
-        // Add new file at the beginning
-        val newArray = JSONArray()
-        newArray.put(file.toJson())
-        for (i in 0 until minOf(filteredArray.length(), MAX_RECENT_FILES - 1)) {
-            newArray.put(filteredArray.getJSONObject(i))
-        }
-        
-        prefs.edit {
-            putString(KEY_PERSISTED_FILES, newArray.toString())
-        }
-    }
-    
-    /**
      * Load all persisted files from storage and validate their accessibility.
      * Removes entries that are no longer accessible.
      * 
@@ -283,38 +287,24 @@ object SafUriManager {
      * @return List of PersistedFile entries that are currently accessible
      */
     suspend fun loadRecentFiles(context: Context): List<PersistedFile> = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val existingJson = prefs.getString(KEY_PERSISTED_FILES, "[]") ?: "[]"
+        migrateIfNeeded(context)
         
-        val filesArray = try {
-            JSONArray(existingJson)
-        } catch (e: Exception) {
-            return@withContext emptyList()
-        }
+        val dao = getDao(context)
+        val entities = dao.getAll()
         
         val accessibleFiles = mutableListOf<PersistedFile>()
-        val validFilesJson = JSONArray()
         
-        for (i in 0 until filesArray.length()) {
-            val fileJson = filesArray.optJSONObject(i) ?: continue
-            val persistedFile = PersistedFile.fromJson(fileJson) ?: continue
-            
-            // Check if we can still access this file
+        for (entity in entities) {
+            val persistedFile = entity.toPersistedFile()
             val uri = persistedFile.toUri()
+
             if (uri != null && canAccessUri(context, uri)) {
                 accessibleFiles.add(persistedFile)
-                validFilesJson.put(fileJson)
             } else {
                 // Release permission for inaccessible URIs
                 uri?.let { releasePersistablePermission(context, it) }
+                dao.deleteByUri(entity.uriString)
                 Log.d(TAG, "Removed inaccessible file from recent: ${persistedFile.name}")
-            }
-        }
-        
-        // Update storage with only accessible files
-        if (validFilesJson.length() != filesArray.length()) {
-            prefs.edit {
-                putString(KEY_PERSISTED_FILES, validFilesJson.toString())
             }
         }
         
@@ -328,33 +318,15 @@ object SafUriManager {
      * @param uriString The URI string to remove
      */
     suspend fun removeRecentFile(context: Context, uriString: String) = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val existingJson = prefs.getString(KEY_PERSISTED_FILES, "[]") ?: "[]"
+        migrateIfNeeded(context)
+        val dao = getDao(context)
+        dao.deleteByUri(uriString)
         
-        val filesArray = try {
-            JSONArray(existingJson)
+        try {
+            val uri = Uri.parse(uriString)
+            releasePersistablePermission(context, uri)
         } catch (e: Exception) {
-            return@withContext
-        }
-        
-        val filteredArray = JSONArray()
-        for (i in 0 until filesArray.length()) {
-            val fileJson = filesArray.optJSONObject(i)
-            if (fileJson?.optString("uriString") != uriString) {
-                filteredArray.put(fileJson)
-            } else {
-                // Release permission for removed URI
-                try {
-                    val uri = Uri.parse(uriString)
-                    releasePersistablePermission(context, uri)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to release permission for removed file: ${e.message}")
-                }
-            }
-        }
-        
-        prefs.edit {
-            putString(KEY_PERSISTED_FILES, filteredArray.toString())
+            Log.w(TAG, "Failed to release permission for removed file: ${e.message}")
         }
     }
     
@@ -364,21 +336,21 @@ object SafUriManager {
      * @param context Application context
      */
     suspend fun clearAllRecentFiles(context: Context) = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        migrateIfNeeded(context)
+        val dao = getDao(context)
         
         // Release all permissions first
-        getPersistedUriPermissions(context).forEach { uriString ->
+        val entities = dao.getAll()
+        entities.forEach { entity ->
             try {
-                val uri = Uri.parse(uriString)
+                val uri = Uri.parse(entity.uriString)
                 releasePersistablePermission(context, uri)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to release permission: ${e.message}")
             }
         }
         
-        prefs.edit {
-            remove(KEY_PERSISTED_FILES)
-        }
+        dao.clearAll()
     }
     
     /**
@@ -389,40 +361,8 @@ object SafUriManager {
      * @param uriString The URI string to update
      */
     suspend fun updateLastAccessed(context: Context, uriString: String) = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val existingJson = prefs.getString(KEY_PERSISTED_FILES, "[]") ?: "[]"
-        
-        val filesArray = try {
-            JSONArray(existingJson)
-        } catch (e: Exception) {
-            return@withContext
-        }
-        
-        // Find and update the file, then move it to the front
-        var updatedFile: JSONObject? = null
-        val otherFiles = JSONArray()
-        
-        for (i in 0 until filesArray.length()) {
-            val fileJson = filesArray.optJSONObject(i)
-            if (fileJson?.optString("uriString") == uriString) {
-                fileJson.put("lastAccessed", System.currentTimeMillis())
-                updatedFile = fileJson
-            } else {
-                otherFiles.put(fileJson)
-            }
-        }
-        
-        // Rebuild array with updated file at the front
-        if (updatedFile != null) {
-            val newArray = JSONArray()
-            newArray.put(updatedFile)
-            for (i in 0 until otherFiles.length()) {
-                newArray.put(otherFiles.getJSONObject(i))
-            }
-            
-            prefs.edit {
-                putString(KEY_PERSISTED_FILES, newArray.toString())
-            }
-        }
+        migrateIfNeeded(context)
+        val dao = getDao(context)
+        dao.updateLastAccessed(uriString, System.currentTimeMillis())
     }
 }
