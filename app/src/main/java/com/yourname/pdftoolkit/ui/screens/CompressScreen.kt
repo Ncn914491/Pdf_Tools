@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.pdftoolkit.data.FileManager
 import com.yourname.pdftoolkit.data.HistoryManager
+import com.yourname.pdftoolkit.data.SafUriManager
 import com.yourname.pdftoolkit.data.OperationType
 import com.yourname.pdftoolkit.data.PdfFileInfo
 import com.yourname.pdftoolkit.domain.operations.CompressionLevel
