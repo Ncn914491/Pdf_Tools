@@ -331,27 +331,34 @@ class PdfScanner(private val context: Context) {
      */
     private fun convertToBlackAndWhite(source: Bitmap): Bitmap {
         val grayscale = convertToGrayscale(source)
-        val result = Bitmap.createBitmap(grayscale.width, grayscale.height, Bitmap.Config.ARGB_8888)
-        
+        val width = grayscale.width
+        val height = grayscale.height
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        val pixels = IntArray(width * height)
+        grayscale.getPixels(pixels, 0, width, 0, 0, width, height)
+
         val threshold = 128
-        
-        for (y in 0 until grayscale.height) {
-            for (x in 0 until grayscale.width) {
-                val pixel = grayscale.getPixel(x, y)
-                val gray = android.graphics.Color.red(pixel)
-                val newColor = if (gray > threshold) {
-                    android.graphics.Color.WHITE
-                } else {
-                    android.graphics.Color.BLACK
-                }
-                result.setPixel(x, y, newColor)
+
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            // For grayscale images, R=G=B. Extracting red component is sufficient.
+            // Using bitwise operations for performance: (pixel >> 16) & 0xFF
+            val gray = (pixel shr 16) and 0xFF
+
+            pixels[i] = if (gray > threshold) {
+                android.graphics.Color.WHITE
+            } else {
+                android.graphics.Color.BLACK
             }
         }
-        
+
+        result.setPixels(pixels, 0, width, 0, 0, width, height)
+
         if (grayscale != source) {
             grayscale.recycle()
         }
-        
+
         return result
     }
     
