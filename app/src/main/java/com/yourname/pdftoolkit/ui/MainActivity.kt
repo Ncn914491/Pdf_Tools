@@ -7,12 +7,16 @@ import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.yourname.pdftoolkit.data.SafUriManager
 import com.yourname.pdftoolkit.ui.navigation.AppNavigation
@@ -46,10 +50,12 @@ class MainActivity : ComponentActivity() {
     
     private var pendingPdfUri: Uri? = null
     private var pendingPdfName: String? = null
+    private var pendingIsLoading: Boolean = false
     
     // Compose state holders for handling intents while app is running
     private var pdfUriState: androidx.compose.runtime.MutableState<Uri?>? = null
     private var pdfNameState: androidx.compose.runtime.MutableState<String?>? = null
+    private var isLoadingState: androidx.compose.runtime.MutableState<Boolean>? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +64,7 @@ class MainActivity : ComponentActivity() {
         // This MUST happen before setContent so pendingPdfUri is set
         handleIntent(intent)
         
-        Log.d(TAG, "onCreate: After handleIntent, pendingPdfUri=$pendingPdfUri, pendingPdfName=$pendingPdfName")
+        Log.d(TAG, "onCreate: After handleIntent, pendingPdfUri=$pendingPdfUri, pendingPdfName=$pendingPdfName, pendingIsLoading=$pendingIsLoading")
         
         setContent {
             PDFToolkitTheme {
@@ -71,19 +77,30 @@ class MainActivity : ComponentActivity() {
                     // Initialize state with pending values (set by handleIntent)
                     val pdfUri = remember { mutableStateOf(pendingPdfUri) }
                     val pdfName = remember { mutableStateOf(pendingPdfName) }
+                    val isLoading = remember { mutableStateOf(pendingIsLoading) }
                     
                     // Store references for onNewIntent updates
                     pdfUriState = pdfUri
                     pdfNameState = pdfName
+                    isLoadingState = isLoading
                     
-                    Log.d(TAG, "Composing AppNavigation with initialPdfUri=${pdfUri.value}, initialPdfName=${pdfName.value}")
+                    Log.d(TAG, "Composing AppNavigation with initialPdfUri=${pdfUri.value}, initialPdfName=${pdfName.value}, isLoading=${isLoading.value}")
                     
-                    AppNavigation(
-                        navController = navController,
-                        modifier = Modifier.fillMaxSize(),
-                        initialPdfUri = pdfUri.value,
-                        initialPdfName = pdfName.value
-                    )
+                    if (isLoading.value) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        AppNavigation(
+                            navController = navController,
+                            modifier = Modifier.fillMaxSize(),
+                            initialPdfUri = pdfUri.value,
+                            initialPdfName = pdfName.value
+                        )
+                    }
                 }
             }
         }
@@ -101,9 +118,10 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         
         // Update Compose state to trigger navigation
-        Log.d(TAG, "onNewIntent: Updating Compose state with PDF=$pendingPdfUri")
+        Log.d(TAG, "onNewIntent: Updating Compose state with PDF=$pendingPdfUri, Loading=$pendingIsLoading")
         pdfUriState?.value = pendingPdfUri
         pdfNameState?.value = pendingPdfName
+        isLoadingState?.value = pendingIsLoading
     }
     
     /**
@@ -150,33 +168,53 @@ class MainActivity : ComponentActivity() {
             return
         }
         
-        // For ACTION_VIEW and ACTION_SEND, we MUST copy to cache synchronously
-        // because these intents don't support persistable permissions and the
-        // temporary permission expires as soon as onCreate finishes
-        val accessibleUri = when (intent.action) {
+        // For ACTION_VIEW and ACTION_SEND, we copy to cache asynchronously with a loading state
+        // to avoid blocking the main thread.
+        when (intent.action) {
             Intent.ACTION_VIEW, Intent.ACTION_SEND -> {
-                Log.d(TAG, "ACTION_VIEW/SEND detected - copying to cache synchronously")
-                // Copy synchronously using runBlocking to ensure it completes before onCreate finishes
-                runBlocking {
-                    copyToCacheSynchronous(originalUri, fileName)
+                Log.d(TAG, "ACTION_VIEW/SEND detected - copying to cache asynchronously")
+
+                // Set loading state
+                pendingIsLoading = true
+                isLoadingState?.value = true
+
+                lifecycleScope.launch {
+                    val accessibleUri = copyToCacheSynchronous(originalUri, fileName)
+
+                    // Update state
+                    pendingIsLoading = false
+                    pendingPdfUri = accessibleUri
+                    pendingPdfName = fileName.removeSuffix(".pdf").removeSuffix(".PDF")
+
+                    isLoadingState?.value = false
+                    pdfUriState?.value = accessibleUri
+                    pdfNameState?.value = pendingPdfName
+
+                    if (accessibleUri == null) {
+                        Log.e(TAG, "Could not obtain access to URI: $originalUri - file will not be opened")
+                    } else {
+                        Log.d(TAG, "Successfully copied to cache: $accessibleUri")
+                    }
                 }
+                // Return immediately, results will be handled via state updates
+                return
             }
             else -> {
                 // For other intents (e.g., from internal navigation), try persistable permission first
-                getAccessibleUri(originalUri, intent, fileName)
+                val accessibleUri = getAccessibleUri(originalUri, intent, fileName)
+
+                if (accessibleUri == null) {
+                    Log.e(TAG, "Could not obtain access to URI: $originalUri - file will not be opened")
+                    return
+                }
+
+                Log.d(TAG, "Successfully got accessible URI: $accessibleUri (original was: $originalUri)")
+
+                pendingPdfUri = accessibleUri
+                pendingPdfName = fileName.removeSuffix(".pdf").removeSuffix(".PDF")
+                Log.d(TAG, "Set pending PDF: uri=$pendingPdfUri, name=$pendingPdfName")
             }
         }
-        
-        if (accessibleUri == null) {
-            Log.e(TAG, "Could not obtain access to URI: $originalUri - file will not be opened")
-            return
-        }
-        
-        Log.d(TAG, "Successfully got accessible URI: $accessibleUri (original was: $originalUri)")
-        
-        pendingPdfUri = accessibleUri
-        pendingPdfName = fileName.removeSuffix(".pdf").removeSuffix(".PDF")
-        Log.d(TAG, "Set pending PDF: uri=$pendingPdfUri, name=$pendingPdfName")
     }
     
     /**
