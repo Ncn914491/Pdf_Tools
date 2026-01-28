@@ -7,6 +7,8 @@ import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -292,24 +294,32 @@ object SafUriManager {
             return@withContext emptyList()
         }
         
-        val accessibleFiles = mutableListOf<PersistedFile>()
-        val validFilesJson = JSONArray()
-        
-        for (i in 0 until filesArray.length()) {
-            val fileJson = filesArray.optJSONObject(i) ?: continue
-            val persistedFile = PersistedFile.fromJson(fileJson) ?: continue
-            
-            // Check if we can still access this file
-            val uri = persistedFile.toUri()
-            if (uri != null && canAccessUri(context, uri)) {
-                accessibleFiles.add(persistedFile)
-                validFilesJson.put(fileJson)
-            } else {
-                // Release permission for inaccessible URIs
-                uri?.let { releasePersistablePermission(context, it) }
-                Log.d(TAG, "Removed inaccessible file from recent: ${persistedFile.name}")
+        val fileObjects = (0 until filesArray.length()).mapNotNull { filesArray.optJSONObject(it) }
+
+        val deferredResults = fileObjects.map { fileJson ->
+            async {
+                val persistedFile = PersistedFile.fromJson(fileJson)
+                if (persistedFile != null) {
+                    val uri = persistedFile.toUri()
+                    if (uri != null && canAccessUri(context, uri)) {
+                        persistedFile to fileJson
+                    } else {
+                        // Release permission for inaccessible URIs
+                        uri?.let { releasePersistablePermission(context, it) }
+                        Log.d(TAG, "Removed inaccessible file from recent: ${persistedFile.name}")
+                        null
+                    }
+                } else {
+                    null
+                }
             }
         }
+
+        val results = deferredResults.awaitAll().filterNotNull()
+
+        val accessibleFiles = results.map { it.first }
+        val validFilesJson = JSONArray()
+        results.forEach { validFilesJson.put(it.second) }
         
         // Update storage with only accessible files
         if (validFilesJson.length() != filesArray.length()) {
