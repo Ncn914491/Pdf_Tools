@@ -385,8 +385,8 @@ object ImageProcessor {
     /**
      * Get image dimensions without loading full bitmap.
      */
-    fun getImageDimensions(context: Context, uri: Uri): Pair<Int, Int>? {
-        return try {
+    suspend fun getImageDimensions(context: Context, uri: Uri): Pair<Int, Int>? = withContext(Dispatchers.IO) {
+        try {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 val options = BitmapFactory.Options().apply {
                     inJustDecodeBounds = true
